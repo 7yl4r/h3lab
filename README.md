@@ -303,6 +303,44 @@ anomalous, not what happened between composites, which is why the current
 composite is still printed as exact numbers above it and every cell carries a
 tooltip with its value and deviation.
 
+### The spectral profile
+
+The heatmap normalises each row, which is what makes twelve series comparable
+— and which also throws away every absolute value. The profile is where the
+absolute numbers live, expressed as a shape rather than as a column of six
+means.
+
+It replaced a panel of six record means, each followed by a 26-segment strip.
+Those strips were pure duplication: segment alpha was `0.18 + 0.82·v/max` and
+heatmap colour was `(v − mean)/sd`, both strictly increasing in the same value,
+so the strips repeated the heatmap's ordering exactly and added no shape
+information of their own. The means did not — nothing else in the panel shows
+absolute reflectance — so they were kept and re-plotted rather than deleted.
+
+Three decisions in the plot are deliberate:
+
+- **Logarithmic wavelength axis.** Blue, green and red sit inside 482–655 nm
+  while SWIR runs to 2200. On a linear axis the three visible bands collapse
+  into the first tenth of the plot.
+- **The y axis starts at zero and is not fitted to the cell.** Auto-fitting
+  would make a dark-water cell look as bright as a vegetated one, which is
+  precisely the comparison the plot exists to support.
+- **Points heavier than the line.** The line is an interpolant between band
+  centres — Landsat samples six slices, it does not sweep a spectrometer — so
+  the measured marks are what carry weight and the connecting stroke is
+  visibly subordinate. Whiskers show the observed min–max across composites.
+
+The axis ceiling uses a finer ladder than the usual 1/2/5 rounding. A 0.32
+maximum rounded to 0.50 wasted a third of the plot and squashed every whisker
+below one pixel.
+
+**A sign error silently removed every whisker.** `Y()` is inverted, so
+`Y(max)` is numerically *smaller* than `Y(min)`; the guard `yHi - yLo > 1.2`
+was therefore always false and drew nothing. The plot looked finished without
+them. Comparing the absolute gap fixed it. This is the same failure mode as the
+others in this file — no exception, just a missing element that only a rendered
+pixel check catches.
+
 ### Chart colours
 
 Series identity is coloured the way spectral plots conventionally are —
@@ -387,8 +425,8 @@ The viewer has:
 - **rank cells by** panel — largest index change, most settled, least
   settled, or most churning. Every entry is clickable.
 - **the biography panel** — an NDVI ribbon across the whole record, a heatmap
-  of every band and index through time (below), per-band means with a
-  per-composite strip beneath each, observation counts, and a written
+  of every band and index through time (below), a spectral profile of the
+  cell's mean reflectance by wavelength, observation counts, and a written
   one-paragraph summary of what happened to that cell and when
 
 Click a hexagon on the map, or click any entry in the swings panel.
