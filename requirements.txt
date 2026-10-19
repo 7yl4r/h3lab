@@ -1,0 +1,21 @@
+# Direct dependencies of the h3lab pipeline, pinned to the versions this
+# build was verified against. Transitive deps (e.g. shapely via geopandas,
+# click/attrs via rasterio) resolve on their own.
+#
+#   pip install -r requirements.txt
+#
+# Deliberately absent: stackstac and xarray. They were installed speculatively
+# early on and nothing in src/ imports them; the ingest path reads COGs
+# directly through rasterio/VRT instead. Drop them rather than have a fresh
+# clone install 20 MB it never uses.
+#
+# The viewer needs no build step and no Python -- it is static HTML loading
+# maplibre-gl from a CDN.
+
+h3==4.5.0
+numpy==2.4.6
+planetary-computer==1.0.0
+pyproj==3.7.2
+pystac-client==0.9.0
+rasterio==1.5.0
+shapely==2.1.2

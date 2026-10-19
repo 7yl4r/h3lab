@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>H3lab load probe</title>
+<style>
+  body{margin:0;padding:28px;background:#12141a;color:#e7eaf0;
+       font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+  h1{font-size:17px;margin:0 0 4px}
+  p.sub{color:#98a2b8;margin:0 0 22px;font-size:13px}
+  table{border-collapse:collapse;width:100%;max-width:820px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid #2a3040;font-size:13px}
+  th{color:#98a2b8;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .ok{color:#7fd4c1}.bad{color:#e07a6a}.warn{color:#e0a458}
+  #out{margin-top:20px;padding:14px 16px;background:#1a1d26;border:1px solid #333a4a;
+       border-radius:8px;max-width:820px;white-space:pre-wrap;font-size:12.5px}
+  button{background:#222633;color:#e7eaf0;border:1px solid #333a4a;border-radius:6px;
+         padding:8px 14px;font:inherit;cursor:pointer;margin-bottom:18px}
+  button:hover{border-color:#4a556e}
+  a{color:#7fd4c1}
+</style>
+</head>
+<body>
+
+<h1>H3lab load probe</h1>
+<p class="sub">
+  Measures each stage in isolation, with no map, no library and no viewer code.
+  Run this to tell <em>where</em> the load is slow before blaming the viewer.
+</p>
+
+<button id="run">run probe</button>
+
+<table>
+  <thead><tr><th>stage</th><th>size</th><th>ms</th><th>result</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<div id="out">not run</div>
+
+<script type="module">
+const STEM='../data/rookery_bay_h3';
+const rows=document.querySelector('#rows'), out=document.querySelector('#out');
+const lines=[];
+
+function row(stage,size,ms,cls,note){
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td>${stage}</td><td class="num">${size||''}</td>`+
+               `<td class="num">${ms}</td><td class="${cls}">${note}</td>`;
+  rows.appendChild(tr);
+}
+function say(s){ lines.push(s); out.textContent=lines.join('\n'); }
+
+async function timed(label,fn,size){
+  const t=performance.now();
+  try{
+    const r=await fn();
+    const ms=Math.round(performance.now()-t);
+    row(label,size||'',ms,'ok','ok');
+    return {r,ms};
+  }catch(e){
+    const ms=Math.round(performance.now()-t);
+    row(label,size||'',ms,'bad','FAILED');
+    throw e;
+  }
+}
+
+document.querySelector('#run').onclick=async ()=>{
+  rows.innerHTML=''; lines.length=0; out.textContent='running…\n';
+  say(`page   ${location.href}`);
+  say(`origin ${location.origin}`);
+  say(`time   ${new Date().toString()}\n`);
+
+  // ---- 0. can we reach the server at all? ----
+  let meta=null;
+  try{
+    const {r,ms}=await timed('GET meta.json',async()=>{
+      const res=await fetch(`${STEM}_meta.json`,{cache:'no-store'});
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    });
+    meta=r;
+    row('server reachable','',ms,'ok','yes');
+    say(`server reachable in ${ms}ms`);
+  }catch(e){
+    row('server reachable','','','bad','FAILED');
+    say(`\nFAILED to reach the server: ${e.message}`);
+    say('Is it running?  cd h3lab && ./serve.sh   then open http://localhost:8000/viewer/probe.html');
+    return;
+  }
+  const avail=(meta.resolutions||[]).map(r=>String(r.res));
+  say(`resolutions available: ${avail.join(', ')}\n`);
+
+  // ---- 1. raw byte transfer, no decoding ----
+  for(const info of (meta.resolutions||[])){
+    const res=info.res;
+    const file=info.bin||`rookery_bay_h3_res${res}.bin.gz`;
+    const size=`${info.mb}MB`;
+    let bytes;
+    try{
+      const t=performance.now();
+      const res2=await fetch(`../data/${file}`,{cache:'no-store'});
+      if(!res2.ok) throw new Error(`HTTP ${res2.status}`);
+      const buf=new Uint8Array(await res2.arrayBuffer());
+      const ms=Math.round(performance.now()-t);
+      bytes=buf;
+      const mbps=(buf.length/1048576)/(ms/1000);
+      const cls = ms>20000 ? 'bad' : ms>3000 ? 'warn' : 'ok';
+      row(`res ${res} download`,size,ms,cls,`${mbps.toFixed(1)} MB/s`);
+      say(`res ${res}: ${(buf.length/1048576).toFixed(2)} MB in ${ms}ms (${mbps.toFixed(1)} MB/s)`);
+
+      // ---- 2. inflate ----
+      if(file.endsWith('.gz')){
+        try{
+          if(typeof DecompressionStream==='undefined'){
+            row(`res ${res} inflate`,'','','warn','no DecompressionStream');
+            say(`  inflate SKIPPED: this browser has no DecompressionStream`);
+          }else{
+            const t2=performance.now();
+            const ds=new DecompressionStream('gzip');
+            const ab=await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
+            const ms2=Math.round(performance.now()-t2);
+            row(`res ${res} inflate`,`${(ab.byteLength/1048576).toFixed(1)}MB`,ms2,'ok','ok');
+            say(`  inflate ${ms2}ms -> ${(ab.byteLength/1048576).toFixed(2)} MB raw`);
+          }
+        }catch(e){
+          row(`res ${res} inflate`,'','','bad',e.message);
+          say(`  inflate FAILED: ${e.message}`);
+        }
+      }
+    }catch(e){
+      row(`res ${res} download`,size,'','bad',e.message);
+      say(`res ${res} FAILED: ${e.message}`);
+    }
+  }
+
+  say('');
+  say('Interpretation:');
+  say('  download  >> 2000ms per MB  -> the server or the network is the bottleneck');
+  say('  inflate   >> download       -> the payload is fine, the CPU is slow');
+  say('  both fast                    -> the viewer or the basemap is at fault,');
+  say('                                 not the data. Next check the map tiles.');
+};
+
+if(location.protocol==='file:'){
+  out.innerHTML='<span class="bad">This page must be served over HTTP.</span><br><br>'+
+    'cd h3lab && ./serve.sh<br>then open http://localhost:8000/viewer/probe.html';
+}
+</script>
+</body>
+</html>

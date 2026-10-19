@@ -1,0 +1,30 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Intermediate per-composite cache: 78 .npz, ~14 MB.
+# Purely a build accelerator -- fully regenerable from the pipeline, and a
+# fresh clone skips it by re-downloading from Planetary Computer instead.
+data/cache/
+
+# Build logs
+logs/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# data/rookery_bay_h3_meta.json and data/*.bin.gz ARE tracked, deliberately.
+#
+# They are derived, but at 14 MB total they are 0.03% of GitHub's 5 GB repo
+# ceiling and 11% of the 100 MB per-file limit. Tracking them means a fresh
+# clone can open the viewer immediately instead of running a one-hour,
+# network-dependent pipeline first.
+#
+# The exporter sets gzip mtime=0, so re-exporting unchanged data yields
+# byte-identical files and git reports no diff. If you ever see these change in
+# `git status`, the underlying data genuinely changed -- check it before
+# committing rather than reaching for `git add -A`.
+# ---------------------------------------------------------------------------
