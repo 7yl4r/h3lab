@@ -246,9 +246,66 @@ showing `fetch · inflate · decode · geometry · colour` in milliseconds.
 - **Truncation check.** The decoder verifies it consumed exactly the whole
   buffer and fails loudly if not.
 
+### The biography heatmap
+
+The biography needs twelve series — six reflectance bands, six indices — across
+26 composites, in a panel about 430 px wide. Overlaid line charts cannot do
+this: none of the series agree on a y-scale, so whatever axis you pick hides
+the others, and the later series sit on top of the earlier ones. Every
+alternative that fits the space trades something away, but they do not trade
+the same things:
+
+| form | keeps | costs |
+|---|---|---|
+| overlaid lines | path between composites | occlusion, one shared y-scale |
+| small multiples | path and per-series scale | six to twelve axes, more height |
+| horizon plot | per-series scale in 28 px | folded magnitude has to be decoded |
+| **heatmap** | per-series scale, no occlusion | continuity between composites |
+
+The heatmap wins on breadth. Matrix position carries the series and the time,
+so nothing is ever hidden behind anything else, and each row is normalised
+against **its own** record mean and standard deviation. That is what makes
+twelve series with ranges from 0.02 to 0.9 comparable without a shared axis.
+
+Normalising by standard deviation rather than per-row min–max is deliberate. A
+min–max scale would give a nearly flat series — SAVI moves about 0.02 across
+this record — exactly the same visual drama as NDVI moving 0.4, which is a lie
+about how much happened. The cost is that a genuinely flat row goes neutral
+everywhere, which is the honest answer.
+
+The ramp is quantised into **nine steps** for the same reason the legend shows
+nine swatches: at 11 px per cell a smooth gradient makes neighbouring cells
+indistinguishable, whereas discrete bands let you count deviations by eye.
+
+Two palette mistakes were obvious the moment it rendered, and both are specific
+to a dark panel:
+
+- **The low end must be brighter than the neutral, not darker.** The first
+  ramp ran from near-black blue through dark grey to red, so "low" and "no
+  observation" were nearly the same colour. The extremes now brighten away
+  from a dim neutral.
+- **The neutral must stay clearly lighter than the unobserved fill.** Otherwise
+  a run of quiet composites reads as a hole in the row. Near-black is reserved
+  for cells that were never observed.
+
+A third is structural: **events are drawn as ticks above the grid, never as a
+translucent overlay across it.** A tint over the cells would corrupt the one
+channel that carries the data.
+
+Because these series are all driven by the same wet/dry cycle, the dominant
+texture is a seasonal alternation — that is the record, not an artefact. The
+signal the heatmap adds is the *vertical* one: a column where many rows read
+high or low at once is a composite that was odd across the whole spectrum, not
+just in one index.
+
+Continuity is the thing given up. A heatmap says *when* a composite was
+anomalous, not what happened between composites, which is why the current
+composite is still printed as exact numbers above it and every cell carries a
+tooltip with its value and deviation.
+
 ### Chart colours
 
-Spectral charts are coloured the way spectral plots conventionally are —
+Series identity is coloured the way spectral plots conventionally are —
 **by the band's own wavelength**, with the visible bands getting their real
 colour and the near-infrared continuing the hue wheel past red:
 
@@ -261,14 +318,17 @@ colour and the near-infrared continuing the hue wheel past red:
 | SWIR1 | 1610 nm | violet |
 | SWIR2 | 2200 nm | indigo |
 
-The same hue tints each band's strip in the mean-reflectance table, so the
-table and the chart read as one object. Nominal wavelengths live in
-`config.BAND_INFO` and travel in the bundle metadata, so the viewer labels
-from them rather than duplicating a table.
+The same hue labels each band's heatmap row and tints its strip in the
+mean-reflectance table, so the heatmap, the table and the map legend read as
+one object. Nominal wavelengths live in `config.BAND_INFO` and travel in the
+bundle metadata, so the viewer labels from them rather than duplicating a
+table.
 
-Index chart colours are a **fixed** palette instead, because the map ramps
-cannot separate them — NDWI and MNDWI are both blues, and SAVI sits close to
-NDVI in hue.
+Index identity uses a **fixed** palette instead, because the map ramps cannot
+separate them — NDWI and MNDWI are both blues, and SAVI sits close to NDVI in
+hue. In the heatmap these hues appear only as the small swatch beside each
+row: the cell colour is reserved for the anomaly, which is the channel that
+has to stay legible.
 
 ### Three chart bugs worth remembering
 
@@ -321,15 +381,15 @@ The viewer has:
 
 - **year/season scrubber** with a play button and Hurricane Irma / Ian markers
 - **resolution switcher** — geometry is rebuilt and re-fitted per resolution
-- **colour modes** — land-cover class, NDVI, NDWI, NBR, MNDWI, any fractional
-  cover, or change-versus-baseline
-- **class stability** layer, with four metrics (below)
-- **rank cells by** panel — largest swings versus baseline, most settled, least
+- **colour modes** — any index, any band's reflectance, change-versus-baseline,
+  or spectral stability
+- **spectral stability** layer, with two metrics (below)
+- **rank cells by** panel — largest index change, most settled, least
   settled, or most churning. Every entry is clickable.
-- **the biography panel** — an NDVI ribbon across the whole record, per-band
-  reflectance, all six indices on one axis, per-band means with a per-composite
-  strip beneath each, observation counts, and a written one-paragraph summary of
-  what happened to that cell and when
+- **the biography panel** — an NDVI ribbon across the whole record, a heatmap
+  of every band and index through time (below), per-band means with a
+  per-composite strip beneath each, observation counts, and a written
+  one-paragraph summary of what happened to that cell and when
 
 Click a hexagon on the map, or click any entry in the swings panel.
 
