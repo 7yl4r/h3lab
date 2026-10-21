@@ -25,10 +25,26 @@ Layout, little-endian throughout:
 Every field in the payload is either:
   * "u16"  quantised float: value = min + q * scale, q == 65535 means missing
   * "u8"   unsigned byte: observed
-  * "u16r" raw unsigned short: nObs
+  * "u16r" raw unsigned short: nObs, break fields, method index
 
 The descriptor names every field and its shape, so the viewer can build typed
 array views without any hard-coded knowledge of the layout.
+
+Change-layer fields (D-14)
+---------------------------
+A regional shard carries the break statistics alongside the observations:
+
+  * "break_bin"      u16r, the bin number of the largest break; 65535 = none
+  * "break_date"     u16r, days since the descriptor's epoch (the break bin's
+                     centre date); 65535 = none
+  * "break_magnitude" u16, quantised float: change in index units (post - pre)
+  * "break_score"    u16, quantised float: partial F statistic of the step
+  * "n_obs_used"     u16r, observations entering the fit
+  * "method"         u16r, index into the descriptor's "changeMethods" table
+
+The method table is what makes the layer reproducible: it records the
+algorithm name, version and parameters (D-14), and it lives in the descriptor
+rather than being repeated once per cell.
 """
 
 from __future__ import annotations
@@ -51,7 +67,23 @@ def _flatten(values: list, n_cells: int) -> np.ndarray:
     """Period-major (P, C) float array from the JSON block layout."""
     arr = np.empty((len(values), n_cells), dtype=np.float64)
     for i, row in enumerate(values):
+        # Catch a length mismatch here, where the offending field is named,
+        # rather than as a numpy broadcast error several frames deeper.
+        if len(row) != n_cells:
+            raise ValueError(
+                f"row {i} has {len(row)} values but the block has {n_cells} cells"
+            )
         arr[i] = [np.nan if v is None else float(v) for v in row]
+    return arr
+
+
+def _flat_cells(values, n_cells: int) -> np.ndarray:
+    """Per-cell float array (the change layer has no time axis)."""
+    arr = np.asarray(values, dtype=np.float64).ravel()
+    if arr.size != n_cells:
+        raise ValueError(
+            f"change field has {arr.size} values but the block has {n_cells} cells"
+        )
     return arr
 
 
@@ -142,6 +174,51 @@ def build_block(block: dict) -> tuple[dict, list[bytes]]:
                    "gscaleX": gscale_x, "gscaleY": gscale_y})
     chunks.append(gq.tobytes())
 
+    change_methods = []
+    if block.get("change"):
+        change = block["change"]
+        methods = list(change.get("methods", []))
+        method_idx = np.asarray(change["method"], dtype=np.int64)
+        # A method name that is not in the table is an error, not a silent 0.
+        for m in method_idx:
+            if m < 0 or m >= len(methods):
+                raise ValueError(f"change method index {m} out of range")
+        change_methods = methods
+
+        # break_bin / break_date: raw shorts, MISSING means "no break".
+        bb = np.asarray(change["break_bin"], dtype=np.int64)
+        fields.append({"name": "break_bin", "dtype": "u16r", "shape": [n_cells],
+                       "missing": MISSING,
+                       "desc": "bin number of the largest break"})
+        chunks.append(np.where(bb < 0, MISSING, bb).astype(np.uint16).tobytes())
+
+        bd = np.asarray(change["break_date"], dtype=np.int64)
+        fields.append({"name": "break_date", "dtype": "u16r", "shape": [n_cells],
+                       "missing": MISSING, "unit": "days since epoch",
+                       "desc": "centre date of the break bin"})
+        chunks.append(np.where(bd < 0, MISSING, bd).astype(np.uint16).tobytes())
+
+        bm = _flat_cells(change["break_magnitude"], n_cells)
+        q, lo, scale = _quantise(bm)
+        fields.append({"name": "break_magnitude", "dtype": "u16", "shape": [n_cells],
+                       "min": lo, "scale": scale})
+        chunks.append(q.tobytes())
+
+        bs = _flat_cells(change["break_score"], n_cells)
+        q, lo, scale = _quantise(bs)
+        fields.append({"name": "break_score", "dtype": "u16", "shape": [n_cells],
+                       "min": lo, "scale": scale})
+        chunks.append(q.tobytes())
+
+        no = np.asarray(change["n_obs_used"], dtype=np.uint16)
+        fields.append({"name": "n_obs_used", "dtype": "u16r", "shape": [n_cells]})
+        chunks.append(no.tobytes())
+
+        fields.append({"name": "method", "dtype": "u16r", "shape": [n_cells],
+                       "table": "changeMethods",
+                       "desc": "index into the changeMethods table"})
+        chunks.append(method_idx.astype(np.uint16).tobytes())
+
     descriptor = {
         "nCells": n_cells,
         "nPeriods": n_periods,
@@ -155,6 +232,12 @@ def build_block(block: dict) -> tuple[dict, list[bytes]]:
         "fields": fields,
         "missing": MISSING,
     }
+    if block.get("epoch"):
+        descriptor["epoch"] = block["epoch"]
+    if block.get("binDays"):
+        descriptor["binDays"] = block["binDays"]
+    if change_methods:
+        descriptor["changeMethods"] = change_methods
     return descriptor, chunks
 
 
@@ -170,6 +253,29 @@ def pack(descriptor: dict, chunks: list[bytes]) -> bytes:
         out += c
         out += b"\x00" * ((-len(out)) % ALIGN)
     return bytes(out)
+
+
+def read_descriptor(path: str) -> dict:
+    """Read the descriptor of a written block, without its payload.
+
+    The descriptor is the first thing in the file and is plain JSON, so a
+    reader can learn the block's shape -- how many cells, how many periods,
+    which fields exist -- without decompressing or decoding the payload. The
+    manifest and the verification tooling use this to describe the bundles
+    without holding them in memory.
+    """
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "rb") as fh:
+        head = fh.read(HEADER)
+        if len(head) < HEADER or head[:4] != MAGIC:
+            raise ValueError(f"{path}: not an H3LB block")
+        _version, _flags, length, crc = struct.unpack("<HHII", head[4:HEADER])
+        raw = fh.read(length)
+    if len(raw) != length:
+        raise ValueError(f"{path}: truncated descriptor")
+    if zlib.crc32(raw) & 0xFFFFFFFF != crc:
+        raise ValueError(f"{path}: descriptor CRC mismatch")
+    return json.loads(raw.decode("utf-8"))
 
 
 def write_block(block: dict, path: str, gz: bool = True) -> dict:

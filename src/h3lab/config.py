@@ -13,6 +13,10 @@ from dataclasses import dataclass, field, asdict
 AOI_NAME = "Rookery Bay NERR, SW Florida"
 AOI_BBOX = (-81.80, 25.92, -81.62, 26.08)  # (minx, miny, maxx, maxy) EPSG:4326
 
+# Regional (Phase 1+) bbox covering broader South Florida
+REGIONAL_AOI_BBOX = (-82.6, 24.4, -80.0, 27.4)  # full South Florida bbox ~87,000 km²
+REGIONAL_AOI_NAME = "South Florida Regional"
+
 # Analysis grid. UTM 17N has a central meridian of 81 W, which puts the AOI
 # almost exactly on it, so scale distortion across the box is negligible.
 ANALYSIS_CRS = "EPSG:32617"
@@ -35,6 +39,10 @@ PIXEL_SIZE = 30
 H3_RESOLUTIONS = (8, 9, 10, 11)
 DEFAULT_RESOLUTION = 9
 
+# Regional build resolutions (Phase 1)
+REGIONAL_H3_RESOLUTIONS = (7, 8)  # overview res 7, primary res 8
+REGION_RES = 4  # shard key (D-21)
+
 # --------------------------------------------------------------------------
 # Data source
 # --------------------------------------------------------------------------
@@ -49,6 +57,7 @@ DEFAULT_RESOLUTION = 9
 # this site; HLSL30 is a reasonable alternative for post-2020 work.
 STAC_ENDPOINT = "https://planetarycomputer.microsoft.com/api/stac/v1"
 COLLECTION = "landsat-c2-l2"
+PLATFORMS = ("landsat-7", "landsat-8")  # Phase 1 regional build
 
 # Surface reflectance assets, keyed by our internal band name -> STAC asset.
 # Landsat 4-7 (TM/ETM+) expose "nir"; Landsat 8-9 (OLI-2) expose "nir08".

@@ -48,14 +48,26 @@ class HexGrid:
         # geodesic, via h3's own area for the union of cells
         return float(h3.cell_area(self.cells[0], unit="km^2")) * 0 + self._aoi_area
 
-    def subset(self, mask: np.ndarray) -> "HexGrid":
-        keep = np.flatnonzero(mask)
+    def subset(self, mask) -> "HexGrid":
+        """Restrict the grid to a selection.
+
+        `mask` is either a boolean mask over the cells or a list of row
+        indices. The two must not be confused: `np.flatnonzero` on an integer
+        array returns the *positions* of the non-zero entries, so passing
+        indices to a boolean-mask implementation silently drops index 0 and
+        shifts every later cell by one.
+        """
+        sel = np.asarray(mask)
+        if sel.dtype == bool:
+            keep = np.flatnonzero(sel)
+        else:
+            keep = sel.astype(np.int64).ravel()
         return HexGrid(
             resolution=self.resolution,
             cells=self.cells[keep],
             centroids_lonlat=self.centroids_lonlat[keep],
             centroids_proj=self.centroids_proj[keep],
-            index_of={self.cells[i]: k for k, i in enumerate(keep)},
+            index_of={str(self.cells[i]): k for k, i in enumerate(keep)},
             areas_km2=self.areas_km2[keep],
             aoi_geom=self.aoi_geom,
             crs=self.crs,
@@ -154,6 +166,73 @@ def _disk_radius(res: int) -> int:
     edge_km = h3.average_hexagon_edge_length(res, unit="km")
     cells_across = max((span_deg * 111.0) / (edge_km * 1.5), 1)
     return int(np.ceil(cells_across)) + 2
+
+
+def build_grid_for(
+    aoi_bbox: tuple = AOI_BBOX,
+    resolutions: tuple = H3_RESOLUTIONS,
+    crs: str = ANALYSIS_CRS,
+    pixel_size: int = PIXEL_SIZE,
+) -> dict[int, HexGrid]:
+    """Build grids for an arbitrary bbox.
+
+    `build_grid` assumes the resolutions it is given are *consecutive*, because
+    it refines each level from the one before it. A regional build wants res 7
+    and res 8 from a res-4 region grid, which is not consecutive, so this
+    variant builds each requested resolution independently.
+
+    Cells are selected with H3's own polygon rasteriser in "full" mode: the
+    cell is kept only if the *whole* hexagon lies inside the AOI, the same
+    rule the pilot uses (`aoi_prep.contains(shape(_hex_ring(cid)))`). Doing the
+    test per cell with shapely costs minutes at res 8 (a quarter of a million
+    polygon containment tests); H3 does the same test in C in a tenth of a
+    second, and `contain="full"` is exactly the pilot's rule.
+    """
+    minx, miny, maxx, maxy = aoi_bbox
+    aoi = box(minx, miny, maxx, maxy)
+
+    grids: dict[int, HexGrid] = {}
+    for res in sorted(resolutions):
+        cells = _cells_within_bbox(aoi_bbox, res)
+        if not cells:
+            raise ValueError(f"no cells at resolution {res}")
+
+        cents_ll = np.array([h3.cell_to_latlng(c) for c in cells], dtype=float)
+        cents_ll = np.column_stack([cents_ll[:, 1], cents_ll[:, 0]])  # (lng, lat)
+        cells = np.array(cells, dtype=object)
+        cents_pr = _centroids_proj(cells, crs)
+
+        grids[res] = HexGrid(
+            resolution=res,
+            cells=cells,
+            centroids_lonlat=cents_ll,
+            centroids_proj=cents_pr,
+            index_of={str(c): i for i, c in enumerate(cells)},
+            areas_km2=np.array([h3.cell_area(c, unit="km^2") for c in cells], dtype=float),
+            aoi_geom=aoi,
+            crs=crs,
+            pixel_size=pixel_size,
+        )
+        grids[res]._aoi_area = _geodesic_area_km2(aoi)
+        print(
+            f"  res {res:>2}: {len(cells):>7,} cells  "
+            f"mean {grids[res].areas_km2.mean()*1e6:>9,.0f} m2  "
+            f"AOI {grids[res]._aoi_area:,.1f} km2"
+        )
+    return grids
+
+
+def _cells_within_bbox(aoi_bbox: tuple, res: int) -> list[str]:
+    """H3 cells at `res` whose whole hexagon lies inside the bbox.
+
+    H3's `contain="full"` rasteriser applies the same rule as the pilot's
+    per-cell shapely test, but orders of magnitude faster.
+    """
+    from h3.api.basic_str import LatLngPoly
+
+    minx, miny, maxx, maxy = aoi_bbox
+    poly = LatLngPoly([(miny, minx), (miny, maxx), (maxy, maxx), (maxy, minx)])
+    return list(h3.h3shape_to_cells_experimental(poly, res, contain="full"))
 
 
 def _geodesic_area_km2(aoi: Polygon) -> float:

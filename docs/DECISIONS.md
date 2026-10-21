@@ -325,16 +325,27 @@ VIIRS adds density only after 2012, for a second product and a second QA path.
 ---
 
 ## D-21 — Shard by H3 res-4 region; res-7 is one overview shard
-*2026-10-21 · accepted · project lead*
+*2026-10-21 · accepted · project lead · region count corrected 2026-10-21*
 
-**Decision.** The detail tier is sharded by **H3 res 4** (~1,770 km², **37
-regions** over the bbox), each shard carrying the **res-8** cells inside it. The
-**res-7 overview is a single unsharded bundle** covering the whole bbox.
+**Decision.** The detail tier is sharded by **H3 res 4** parent, each shard
+carrying the **res-8** cells inside it. The **res-7 overview is a single
+unsharded bundle** covering the whole bbox.
+
+**Region count: 72, not 37.** The original 37 was the number of res-4 cells
+whose hexagon lies *entirely* inside the bbox. The res-8 grid is built by the
+same whole-hexagon rule, so its cells reach into res-4 parents that the bbox
+clips; grouping the res-8 cells by their actual parent (`h3.cell_to_parent`)
+gives **72 shards covering 100 % of the res-8 grid**. Dropping the clipped
+parents instead would discard 31 % of the area the mosaic was computed for.
+
+**The shard key is `cell_to_parent`, never a point lookup.** About 6 % of res-8
+cells have a centroid that falls outside their res-4 parent's polygon, so
+`h3.latlng_to_cell(centre, 4)` returns the neighbouring res-4 cell for them.
 
 **Why.** "Shards are regions." res 4 yields a handful of regions that match the
-proposal's RECOVER-area framing and keeps a shard (~2 MB, ~3,500 cells × 23
-periods) small enough for MapLibre as plain GeoJSON. One overview file is the
-simplest way to hit the < 3 s cold load at the current bin count.
+proposal's RECOVER-area framing and keeps a shard small enough for MapLibre as
+plain GeoJSON. One overview file is the simplest way to hit the < 3 s cold load
+at the current bin count.
 
 **Supersedes.** D-10's res-5 shard key (~330 shards). res 5 is still useful as an
 internal grouping but is too fine to call a "region."
@@ -371,7 +382,7 @@ band-at-a-time so 32 GB also works; 64 GB is simply simpler.
 *2026-10-21 · accepted · project lead*
 
 **Decision.** Build and validate the **Rookery Bay region shard** (res-4 parent
-`844413dffffffff`) for 2017 end-to-end before rolling the remaining ~36 regions.
+`844413dffffffff`) for 2017 end-to-end before rolling the remaining 71 regions.
 
 **Why.** It is the smallest region with a known event: the pilot already shows
 Hurricane Irma mangrove loss at Rookery Bay, so the first shard can be checked
@@ -398,3 +409,184 @@ a regional one.
 **Consequence.** Mosaic assembly must combine several path/rows per period. The
 STAC `geometry`-is-a-swath-envelope trap still applies: the footprint comes from
 the raster header, not the catalogue geometry.
+
+---
+
+## D-25 — The mosaic cache stores raw uint16 DN; the SR transform is applied at sampling
+*2026-10-21 · accepted · engineering*
+
+**Decision.** Write the per-period 30 m mosaic as a tiled, deflate-compressed
+GeoTIFF holding the **raw uint16 digital numbers**, and apply
+`SR_SCALE`/`SR_OFFSET` when the mosaic is sampled into H3 cells.
+
+**Why.** Storing DN is lossless: the scaling is two multiplies and an add, so
+doing it later costs nothing, while storing scaled floats would round-trip
+through a float and bloat the cache. It also makes the cache directly
+comparable with the source products, which is what D-09's "the archive is
+native" principle asks for. The QA mask is the only screen applied at build
+time: a pixel is valid when its DN is non-zero *and* its QA says clear.
+
+**Consequence.** `mosaic.py` writes DN; `aggregate.py` scales. Measured: a
+2017 bin is **~250–600 MB** on disk depending on how much of the bbox the
+scenes actually cover, against D-16's ~1.16 GB estimate for raw float32. The
+cache stays inside D-22's 30 GB budget with room to spare.
+
+---
+
+## D-26 — The regional build is a staged pipeline with per-stage disk caches
+*2026-10-21 · accepted · engineering*
+
+**Decision.** Split the regional build into six stages — `stac`, `mosaic`,
+`h3`, `change`, `shard`, `index` — each of which leaves its result on disk and
+can be re-run on its own. Only the `mosaic` stage touches the network.
+
+**Why.** The mosaic stage reads every scene of every bin, which for a year of
+South Florida is tens of gigabytes and several hours; everything after it is
+arithmetic over files already on disk. Separating them means a rebuild after a
+code change costs minutes instead of hours, and it puts the expensive stage
+behind an explicit, inspectable cache. It also makes the stages independently
+testable, which is what the exit criteria need.
+
+**Consequence.** `python -m h3lab.run --regional --year 2017 --stage ...`
+runs any subset of the stages in dependency order. Stage boundaries double as
+the module boundaries: `bins`, `stac`, `mosaic`, `aggregate`, `change`,
+`shard`, `export_region`. The pipeline reverses the pilot's order in exactly
+one place — mosaic first, then sample (D-16) — and the reason is physical, not
+cosmetic: the temporal median has to be taken per *pixel*, before pixels are
+pooled into cells.
+
+---
+
+## D-27 — The change detector scores a step with a partial F, not a CUSUM
+*2026-10-21 · accepted · engineering*
+
+**Decision.** Detect breaks by scanning every interior candidate break with a
+step regressor added to the harmonic model, and score each candidate with the
+partial F statistic of that regressor. Calibrate the detection threshold from
+a *simulated* null (same seasonal shape, AR(1) noise, no step, scanned the
+same way) at a stated per-cell false-positive rate, rather than using a fixed
+constant.
+
+**Why.** The first implementation ran Page's CUSUM on the harmonic residuals,
+which the plan specified. Both statistics rank candidate breaks by the same
+quantity — the difference in mean residual before and after the break — so
+they choose the same break, but they normalise it differently: the CUSUM
+divides by the spread of the *seasonal-only* residuals, the F by the spread
+*after* the step has been removed. At a real break the second is much the
+smaller number, and the separation between "there is a break" and "there is
+not" is far better. Measured on 23-bin series with a seasonal amplitude of
+0.35 and AR(1) noise, at a 5% false-positive rate: a +0.20 step is detected
+in 78% of series by the F-scan and in none by the CUSUM; a +0.40 step in
+100% against none. The CUSUM layer carried no information at all, which
+satisfies the exit criteria and nothing else.
+
+The threshold is simulated rather than analytic for two reasons. The scan
+over ~20 candidate breaks makes the null wider than a single test's, and
+GDAL-independent simulation of the *whole* scan gets that right without a
+multiplicity correction; and the residuals of a real NDVI series are
+autocorrelated, which an F-table's independence assumption does not allow
+for.
+
+**Consequence.** `break_score` is a partial F statistic, not a standardised
+excursion, and the detection threshold is a property of the method rather
+than a constant in the source: the method string records the harmonics, the
+trend, the null's AR(1) coefficient, the number of simulations, the seed and
+the false-positive rate, so a stored layer is reproducible from its own
+descriptor (D-14). The fitted step is close to the true step (0.196
+estimated for a 0.20 step), so `break_magnitude` remains a *residual* change
+— the raw difference of means is swamped by the seasonal curve and is not
+stored. One year of data still limits what is detectable: the powers above
+are for the F-scan's own calibration, and the acceptance test that matters —
+ranking Irma-affected cells without being told the date — stays in Phase 2,
+where there are seven annual cycles to work with.
+
+**Measured on the 2017 regional build** (128,236 res-8 cells × 23 bins).
+Calibration holds: on the shuffled-residual null the layer flags 0.80 % of
+cells against the 1 % the threshold claims. Power, measured as "found at the
+right bin" for a step injected at bin 400, is a coverage question as much as
+a sensitivity one — 0.6 % / 3.6 % / 14.4 % of all cells for a +0.10 / +0.20 /
++0.40 step, against 2.6 % / 19.1 % / 71.6 % of the 1,787 cells that saw the
+whole year. The stored magnitude is inflated for small steps (+0.205 for a
+true +0.10) and nearly unbiased for large ones (+0.423 for a true +0.40),
+because a magnitude is stored only for cells that cleared the threshold and
+those are the noisiest cells. The real series flags 4.5 % against 0.80 % on
+the null: the excess is *ordered* real residual structure that is not a step —
+a one-bin dip in a 23-point series is a step, statistically — and not
+seasonal misfit, since 3 harmonics move the real flag rate only from 4.69 %
+to 4.21 % while raising the null rate to 1.30 % and cutting the +0.20 power
+from 3.64 % to 2.58 %. Two harmonics is kept and the excess is documented
+rather than tuned away: `DESIGN.md` §6.1 has the tables. The layer is a
+*candidates* layer, which is what Phase 1 asked for.
+
+---
+
+## D-28 — The seasonality check compares against the pilot on the pilot's calendar
+*2026-10-21 · accepted · engineering*
+
+**Decision.** Exit criterion 3 is the comparison D-18 rule 4 names, not an
+absolute bar: the regional's wet/dry NDVI separation is measured at the cells
+it shares with the pilot, on the **pilot's** season windows (wet = 1 May –
+31 Oct, dry = 1 Nov – 31 Dec), and the test is that the regional is not
+*damped* relative to the pilot. Concretely: the seasonal-mean ratios within
+15 %, the per-cell wet − dry correlation at or above 0.5, the seasonal
+amplitude ratio at or above 0.8, and a median per-cell amplitude of at least
+0.10 so the cycle is visible at all.
+
+**Why.** The two products do not use the same seasons. The pilot composites
+per season — `config.SEASONS` gives wet = May–Oct and dry = Nov–Dec, and
+`ingest.find_scenes` uses Nov–Dec of the same year — while the regional build's
+dry season is everything outside the growing season, November through April.
+An earlier version of the verifier compared the regional's Nov–Apr dry mean
+against the pilot's Nov–Dec dry composite, and read the extra two months as a
+damped cycle. It is not damped: the regional is low in the two extra months
+for the ordinary reason, which is that March and April are not part of the
+pilot's dry season.
+
+The comparison has to be anchored on something outside both products, and the
+pilot is the only such thing in the repository: it is an independent
+implementation of the same measurement over a different time axis and a
+different compositing order (spatial mean then temporal median, against the
+regional's mosaic-first order), over the same 421 res-8 cells.
+
+**Measured** (2017, 351 cells observed by both products):
+
+| quantity | pilot | regional |
+|---|---|---|
+| wet NDVI median | +0.600 | +0.597 (ratio 0.995) |
+| dry NDVI median | +0.568 | +0.559 (ratio 0.985) |
+| per-cell wet − dry | — | correlation +0.887 |
+| seasonal amplitude median | +0.174 | +0.229 (ratio 1.31) |
+
+**Consequence.** `tools/verify_phase1.py` criterion 3 runs this comparison
+and reports the numbers; the previous absolute "wet NDVI must exceed dry NDVI
+by more than 0.05" bar is gone, because a bare bar cannot tell a damped cycle
+from a site whose dry season is greener than its wet one. That is the normal
+case at Rookery Bay: the pilot's dry composite is *higher* than its wet
+composite in 13 of 13 years, and a bar asserting the opposite would have
+failed a correct build.
+
+---
+
+## D-29 — The mosaic cache budget is one year, not the record
+*2026-10-21 · accepted · engineering*
+
+**Decision.** D-22's 30 GB disk budget covers **one year** of the per-period
+30 m mosaic cache. A full 612-bin record needs ~400 GB of it, and the archive
+itself — the product — is 1.7 GB. Keep the mosaic for the years being worked
+on; rebuild on demand rather than retaining the whole record.
+
+**Why.** Measured on the 2017 build: **664 MB per bin** (259 – 817 MB), so
+15.27 GB for 23 bins and **~406 GB for the full record**. Deflate buys only
+about 1.75× over the raw uint16 DN, because it does not exploit the 16-bit
+structure of the DN values; D-22's "7–14 GB for a single year" was therefore
+right at the top of its range, and D-25's "~250–600 MB per bin" was at the
+bottom of the measured range.
+
+**Consequence.** The archive stays small enough to serve, which is what the
+viewer cares about: 64.5 MB for the whole of 2017 (8.21 MB overview + 56.3 MB
+of shards), under half a second cold load against a 3 s budget. The mosaic
+cache is a build accelerator, not the product, and its retention is a
+per-year choice. The one thing that must not happen is a rebuild that
+silently re-reads the network when a cached mosaic is wanted — the `mosaic`
+stage is therefore cached per bin and the rest of the pipeline never touches
+the network.

@@ -14,6 +14,85 @@ at habitat change one place at a time, rather than at a stack of rasters.
 
 ---
 
+## The regional build (Phase 1)
+
+The pilot above is a single site, a seasonal composite, four H3 resolutions.
+The regional build is the same measurement over South Florida on a **16-day
+time axis**, and it is what Phase 1 delivers:
+
+| | pilot | regional |
+|---|---|---|
+| extent | Rookery Bay NERR, ~319 km² | South Florida bbox, ~87,000 km² |
+| time axis | 2 seasons × 13 years | 16-day bins (23 for 2017) |
+| spatial | res 8 / 9 / 10 / 11 | res 8 detail, res 7 overview |
+| order of operations | spatial mean, then temporal median | **mosaic first**, then sample (D-16) |
+| delivery | one bundle per resolution | one overview file + 72 region shards |
+
+The pieces that are new, and why they exist:
+
+- **A continuous 16-day bin grid** (`bins.py`). Bins are
+  `floor((date − 2000-01-01) / 16)` and never reset, so a sensor's repeat
+  cycle does not beat against the calendar (D-08). The corollary is that
+  **season phase can never be recovered from a bin number** — every bin
+  stores its true centre date, and seasonality is read from that (D-18).
+- **One 30 m mosaic per bin** (`mosaic.py`), assembled from every scene that
+  intersects the bbox. The temporal median is taken *per pixel* and the H3
+  cells are sampled from the result, which is the opposite order to the
+  pilot's and the only one that is correct at regional extent.
+- **A region-sharded archive** (`shard.py`, `export_region.py`). Shards are
+  keyed by the cell's H3 **res-4 parent** — 72 of them, covering 100 % of the
+  res-8 grid — with the res-7 overview as a single unsharded file (D-21).
+- **A change layer** (`change.py`) carrying, per cell, the bin, date,
+  magnitude, score and method of the largest break found by a step-regressor
+  partial-F scan (D-14, D-27).
+- **A two-level viewer** (`viewer/regional.html`) that fetches the overview
+  first and then only the shards on screen.
+
+### Running it
+
+```bash
+export PYTHONPATH=$PWD/src
+
+# the whole of 2017: stac -> mosaic -> h3 -> change -> shard -> index
+python -m h3lab.run --regional --year 2017 --resolutions 7,8
+
+# any subset of the stages, in dependency order
+python -m h3lab.run --regional --year 2017 --stage change,shard,index
+
+# a single bin, or a set of them
+python -m h3lab.run --regional --year 2017 --bins 404
+```
+
+Only the `mosaic` stage touches the network; everything after it is
+arithmetic over files on disk, so a code change costs minutes to re-run
+rather than hours (D-26). The per-stage caches live under `data/` and are
+**not** tracked — they are build accelerators, not products.
+
+### What it produces, measured
+
+For 2017 (23 bins): 383 scenes read, 23 mosaics, 128,236 res-8 cells in 72
+shards plus an 18,115-cell res-7 overview, **64.5 MB served**, **under half a
+second** cold load against a 3 s budget, and 5,760 cells (4.5 %) carrying a
+change break.
+
+Check a build against the five exit criteria with:
+
+```bash
+python tools/verify_phase1.py
+```
+
+It rebuilds the shards twice and compares bytes, checks the geometry against
+an independent `h3` computation, runs the D-18 seasonality comparison against
+the pilot, times a cold load through the viewer's own load path, and asserts
+the change fields are in every shard descriptor.
+
+The *measured* numbers in `docs/DESIGN.md` and `docs/DECISIONS.md` come from
+`tools/measure/` — see its [README](tools/measure/README.md). They are
+scripts rather than prose so the claims can be re-checked against a build
+instead of taken on trust.
+
+---
+
 ## Why hexagons
 
 H3 cells give three things a 30 m pixel grid does not:

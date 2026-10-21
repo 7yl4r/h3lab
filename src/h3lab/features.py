@@ -26,12 +26,24 @@ from .config import BANDS, INDEX_SPECS, INDICES
 # observed this way. A 1e-6 denominator guard is far too permissive: it admits
 # denominators of 1e-3, a hundred times the product's precision.
 #
-# Two conditions, both required:
+# Three conditions, all required:
 #   |a + c| > RATIO_EPS  -- the denominator is not near-cancelling, and
 #   min(|a|, |c|) > ...  -- neither band is inside the noise floor, which is
 #                          what lets one band go negative and break the bound.
+#   sign(a) == sign(c)  -- the two bands must have the same sign. This is the
+#                          condition that actually bounds the ratio: |a - c|
+#                          <= |a + c| holds exactly when a and c do not
+#                          straddle zero, and when they do the ratio is
+#                          guaranteed to exceed 1 in magnitude. Measured on the
+#                          2017 res-7 build, that one rule removed every
+#                          out-of-range value in NDVI, NDWI, MNDWI and NBR.
 #
-# Cells failing either are reported as missing rather than as absurd numbers.
+# The same-sign rule keeps the water indices working over dark water, where
+# both bands are negative: the offset flips the sign of the denominator but
+# the ordering of the two bands, and so the sign of the index, is preserved.
+#
+# Cells failing any condition are reported as missing rather than as absurd
+# numbers.
 RATIO_EPS = 0.01
 
 
@@ -39,7 +51,10 @@ def _ratio(a: np.ndarray, c: np.ndarray) -> np.ndarray:
     """(a - c) / (a + c), NaN where either band is below the noise floor."""
     num = a - c
     den = a + c
-    ok = (np.abs(den) > RATIO_EPS) & (np.abs(a) > RATIO_EPS) & (np.abs(c) > RATIO_EPS)
+    ok = ((np.abs(den) > RATIO_EPS)
+          & (np.abs(a) > RATIO_EPS)
+          & (np.abs(c) > RATIO_EPS)
+          & (np.sign(a) == np.sign(c)))
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.where(ok & np.isfinite(num), num / np.where(ok, den, 1.0), np.nan)
 

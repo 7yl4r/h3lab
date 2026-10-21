@@ -3,6 +3,9 @@
     python -m h3lab.run --years 2016:2019 --resolutions 8,9,10
     python -m h3lab.run --years 2016:2019 --resolutions 8,9,10 --export
 
+    python -m h3lab.run --regional --year 2017 --resolutions 7,8
+    python -m h3lab.run --regional --year 2017 --stage change,shard,index
+
 Stages are cached per composite so an interrupted run resumes rather than
 re-reading every scene. Delete the cache directory to force a clean rebuild.
 """
@@ -118,12 +121,38 @@ def main():
     ap.add_argument("--export", action="store_true", help="write the viewer JSON bundle")
     ap.add_argument("--no-gzip", action="store_true",
                     help="write uncompressed .bin blocks (larger, but no DecompressionStream)")
+    ap.add_argument("--regional", action="store_true",
+                    help="run the Phase 1 regional build (South Florida)")
+    ap.add_argument("--year", type=int, default=2017,
+                    help="year for the regional build")
+    ap.add_argument("--bins", default="",
+                    help="regional build: comma-separated bin numbers")
+    ap.add_argument("--stage", default="",
+                    help="regional build: comma-separated stages "
+                         "(stac,mosaic,h3,change,shard,index)")
+    ap.add_argument("--workers", type=int, default=12,
+                    help="regional build: concurrent scene reads per bin")
     args = ap.parse_args()
 
-    cfg = Config()
-    years = parse_years(args.years)
     resolutions = [int(r) for r in args.resolutions.split(",") if r]
 
+    if args.regional:
+        from . import bins
+        from .regional import build_regional
+
+        stages = [s for s in args.stage.split(",") if s] or None
+        bins_list = None
+        if args.bins:
+            wanted = {int(x) for x in args.bins.split(",")}
+            bins_list = [b for b in bins.bins_for_year(args.year) if b in wanted]
+        build_regional(year=args.year, resolutions=resolutions, stages=stages,
+                       force=args.force, gz=not args.no_gzip,
+                       bins_list=bins_list, workers=args.workers)
+        return
+
+    years = parse_years(args.years)
+
+    cfg = Config()
     grids, composites, labels, target = build(cfg, years, resolutions, force=args.force)
 
     if args.export:

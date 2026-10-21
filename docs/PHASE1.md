@@ -1,11 +1,58 @@
 # Phase 1 — regional vertical slice: implementation plan
 
-**Status:** planned; not started. Waiting on the build machine.
+**Status:** implemented; all five exit criteria pass.
 **Last updated:** 2026-10-21
 **Read with:** `PLAN.md` §5 (phases), `docs/DESIGN.md` (how the system works),
 `docs/DECISIONS.md` (why). This file is the working plan for Phase 1 only and
 does not re-decide anything already settled; decisions taken while writing it
 are appended to `DECISIONS.md` as D-21 onward.
+
+> **Corrections found while executing this plan.** The body below is the plan
+> as written; five of its numbers were wrong and are corrected in
+> `DESIGN.md`/`DECISIONS.md` rather than edited here, so the plan still reads
+> as the plan:
+>
+> - **Regions: 72, not 37.** 37 res-4 cells lie wholly inside the bbox, but
+>   the res-8 grid reaches into 35 more res-4 parents that the bbox clips.
+>   Grouping by `cell_to_parent` gives 72 shards and full coverage (D-21).
+> - **Mosaic size: ~250–600 MB per bin, not 1.16 GB.** The cache stores raw
+>   uint16 DN, not float32 (D-25), so a 2017 cache lands near 6–14 GB —
+>   inside the 30 GB budget (D-22). The measured figure came out higher,
+>   664 MB a bin and 15.3 GB for the year, and the budget turned out to be
+>   per-year rather than per-record (D-29).
+> - **Scene acceptance needed the intersection test** before the first scene
+>   could be read at all (D-24).
+> - **The change detector scores a step with a partial F, not a CUSUM.** The
+>   plan's statistic (§6.4, §10) fires on essentially nothing: a standardised
+>   CUSUM on the residuals never reached its own threshold on a simulated
+>   +0.20 step, so the layer carried no information at all. The step-regressor
+>   F-scan finds 78% of +0.20 steps and 100% of +0.40 steps at a 5%
+>   false-positive rate, and its threshold is a quantile of a simulated null
+>   rather than a constant. `DESIGN.md` §6.1 has the numbers; the fields, the
+>   semantics and the plan's conclusions are unchanged. On the real 2017
+>   data the layer flags 4.5% of cells against a 0.80% false-positive rate on
+>   the shuffled null, and finds a +0.20 step at the right bin for 3.6% of all
+>   cells but 19.1% of the cells that saw the whole year — so the layer is a
+>   *candidates* layer, which is what Phase 1 asked for, and its power is a
+>   coverage question as much as a sensitivity one.
+> - **Exit criterion 3 is a comparison, not a bar.** §11 row 3 asks for the
+>   regional's wet/dry amplitude "vs the pilot's at comparable cells", and
+>   D-18 rule 4 asks whether the regional is *damped*. A bar of the form
+>   "wet NDVI must exceed dry NDVI" cannot answer that: at Rookery Bay the
+>   pilot's dry composite is higher than its wet composite in 13 of 13 years,
+>   so such a bar would fail a correct build. The check is now the
+>   pilot-vs-regional comparison, on the pilot's own season windows (D-28).
+>
+> The build is also staged rather than monolithic (D-26): only the `mosaic`
+> stage touches the network, so a code change costs minutes to re-run rather
+> than hours.
+>
+> **Where the build landed** (2017, 23 bins, res 8 + res 7 overview):
+> 383 scenes; 23 mosaics; 128,236 res-8 cells in 72 shards plus an 18,115-cell
+> res-7 overview; 64.5 MB served; under half a second cold load against a 3 s
+> budget; 5,760 cells (4.5 %) carry a change break. The measured mosaic cache
+> is 15.27 GB for the year — 664 MB a bin — so the full 612-bin record needs
+> ~400 GB of it, against 1.7 GB of archive (D-29).
 
 ---
 

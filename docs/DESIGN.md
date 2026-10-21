@@ -127,6 +127,33 @@ fell in.
 the regional archive must match the pilot's magnitude at comparable cells. If
 it is smaller, something in the compositing is smoothing the annual cycle.
 
+**The check is a comparison, and the comparison needs matched windows.** The
+two products do not use the same seasons:
+
+| | wet | dry |
+|---|---|---|
+| pilot (`config.SEASONS`) | 1 May – 31 Oct | 1 Nov – 31 Dec |
+| regional (`bins.is_*_season_date`) | May – Oct | Nov – Apr |
+
+Comparing a Nov–Dec pilot composite against a Nov–Apr regional mean folds two
+extra months of a different season into the regional side and makes the
+regional look damped when it is not. The check therefore applies the
+**pilot's** calendar to the regional's bins. Measured on the 2017 build at
+the 351 cells the two products share (D-28):
+
+| quantity | pilot | regional |
+|---|---|---|
+| wet NDVI (May–Oct 2017), median | +0.600 | +0.597 (ratio 0.995) |
+| dry NDVI (Nov–Dec 2017), median | +0.568 | +0.559 (ratio 0.985) |
+| per-cell wet − dry | — | correlation with the pilot **+0.887** |
+| per-cell seasonal amplitude (max − min) | +0.174 | +0.229 (ratio 1.31) |
+
+The regional cycle is not damped: on the seasonal means it matches the pilot
+to within 1.5 %, on the per-cell contrast it correlates at +0.89, and its
+amplitude is *larger* than the pilot's — the pilot's amplitude is a 13-year
+max − min, which averages out extremes that a single year of noisier 16-day
+bins reaches more readily.
+
 ### 3.4 Compositing
 
 Per cell, per bin, per source family:
@@ -227,25 +254,36 @@ between a trend and an inventory of satellite launches.
 
 Static files, no server.
 
-- **Shard key:** H3 res 4 region (~1,770 km², **37 regions** over the bbox),
-  each carrying the **res-8** cells inside it. The **res-7 overview is a single
-  unsharded bundle** for the whole bbox. (D-21 supersedes the res-5 key.)
+- **Shard key:** H3 res 4 region, each carrying the **res-8** cells inside it.
+  The **res-7 overview is a single unsharded bundle** for the whole bbox.
+  (D-21 supersedes the res-5 key.)
 - **Per shard:** baked geometry, the 16-day series, and the change fields.
 - **Manifest:** lists shards, schema version, epoch, bin count, and a content
   hash per shard so the viewer can detect stale files.
 
-Estimated shard sizes (23 bins in Phase 1; ~612 in the full build):
+**The region count is 72, not 37.** The number 37 is the count of res-4 cells
+whose hexagon lies *entirely* inside the bbox. The res-8 grid is built by the
+same whole-hexagon rule, so its cells reach into res-4 parents that the bbox
+clips, and those parents are real regions too. Grouping the res-8 cells by
+their actual res-4 parent (`h3.cell_to_parent`) gives **72 shards covering
+100 % of the res-8 grid**; dropping the clipped parents instead would throw
+away 31 % of the area the mosaic was just computed for. The keys are H3's
+own parent indices, so the two conventions disagree for about 6 % of the
+cells whose centre falls just outside their parent's polygon (see §10).
 
-| tier | cells/shard | estimate |
+Measured shard sizes (2017, 23 bins, res 8):
+
+| tier | cells/shard | measured |
 |---|---|---|
-| res 8, 16-day (region) | ~3,500 | ~2 MB |
-| res 7, 16-day (overview, one file) | 18,115 | ~12 MB raw / ~4 MB gz |
-| res 7, MODIS daily | ~49 | ~1.9 MB (per res-5 parent, unchanged) |
-| res 9, 16-day (Phase 5) | ~2,400 | ~18 MB |
+| res 8, 16-day (region) | 28 – 2,401 (mean 1,781) | 72 shards, 0.01 – 1.27 MB each (56.3 MB total) |
+| res 7, 16-day (overview, one file) | 18,115 | one file, 8.21 MB |
+| res 9, 16-day (Phase 5) | ~2,400 | unchanged estimate |
 
-At these sizes MapLibre handles a shard as a plain GeoJSON source. **Sharding
-removes the need for vector tiles**, which was the largest predicted viewer
-rewrite. Keep it that way.
+The whole 2017 regional product is therefore **64.5 MB served** — the overview
+plus all 72 shards — which is what the viewer's cold-load budget is spent on.
+At these sizes MapLibre handles a shard as a plain GeoJSON source.
+**Sharding removes the need for vector tiles**, which was the largest predicted
+viewer rewrite. Keep it that way.
 
 ## 6. Derived products stored in the archive
 
@@ -255,19 +293,54 @@ Per cell, per index (NDVI initially):
 
 | field | meaning |
 |---|---|
-| `break_bin` | bin index of the largest break |
-| `break_date` | its centre date, ISO |
-| `break_magnitude` | change in index units (post − pre) |
-| `break_score` | normalised strength |
+| `break_bin` | bin index of the largest break, or "none" |
+| `break_date` | its centre date (stored as days since the epoch) |
+| `break_magnitude` | change in index units (post − pre), on the residuals |
+| `break_score` | partial F statistic of the step regressor |
 | `n_obs_used` | observations entering the fit |
 | `method` | algorithm name + version + parameters |
+
+Three things about these numbers are worth stating plainly, because all three
+are properties of the estimator rather than of the data.
+
+**The magnitude is a residual step.** The regression has already removed the
+trend and the seasonal cycle, so `break_magnitude` is the difference between
+the two segments *after* that removal, not the raw difference in NDVI. The raw
+difference is not a usable measure at all: it is swamped by the seasonal
+curve, and a cell whose season rises 0.4 while its break adds 0.2 reports a
+raw difference of 0.6. The fitted step is close to the real one — on simulated
+series it recovers a +0.20 step as 0.196 — so the residual step is the
+quantity to store, and the raw difference is the one to throw away.
+
+**The score is a partial F, not a standardised excursion.** For each
+candidate break the model is refitted with a step regressor, and the step is
+scored by the partial F statistic of that regressor. The first version of the
+detector used Page's CUSUM on the residuals instead. Both rank candidate
+breaks by the same quantity, but the CUSUM divides the mean residual
+difference by the spread of the *seasonal-only* residuals, while the F divides
+by the spread *after* the step has been removed. At a real break the second is
+much the smaller number, and the separation is far better: on 23-bin series
+with a seasonal amplitude of 0.35 and AR(1) noise, at a 5% false-positive
+rate, a +0.20 step is detected in 78% of series by the F-scan and in none by
+the CUSUM, and a +0.40 step in 100% against none.
+
+**The score is scale-free, so it needs a threshold.** The scan runs over ~20
+candidate breaks, which makes the null wider than a single test's, so the
+threshold is a quantile of a *simulated* null — series with the same seasonal
+shape and AR(1) noise and no step, scanned the same way. Measured null
+quantiles for 23 bins, 2 harmonics, AR(1) φ = 0.4 (600 simulations): median
+7.2, p95 15.9, p99 21.1. The default threshold is the 99% quantile, i.e. a
+1% per-cell false-positive rate; a cell below it stores "no break" and a cell
+above it stores its best candidate. Without a threshold every cell with
+enough observations reports a break and the field carries no information.
 
 Method:
 
 1. Fit a harmonic regression — linear trend plus 2–3 annual harmonics — on the
    NDVI series. Continuous time, not bin-index modulo.
-2. Run CUSUM on the residuals.
-3. Report the largest break.
+2. For every interior candidate break, refit with a step regressor and score
+   the step with a partial F-test.
+3. Report the candidate with the largest F, if it clears the threshold.
 
 Rationale for harmonic regression over STL: 16-day bins do not divide the year
 evenly (22.83/year), so an integer seasonal period is awkward. Continuous-time
@@ -275,6 +348,74 @@ harmonics handle the non-integer period directly.
 
 The method and its parameters are part of the stored value. A change layer
 without its algorithm is not reproducible and should not be published.
+
+#### Measured on the 2017 build
+
+The numbers below are the detector's behaviour on the real res-8 regional
+series (128,236 cells × 23 bins, 2017), measured with
+`tools/measure/validate_change.py` and `tools/measure/change_power.py`. They
+are the honest characterisation of the layer, and they are also its limits.
+
+**Coverage first.** A cell can only show a break it was observed through. Of
+the 128,236 res-8 cells, the median cell has 14 of 23 bins (p10 6, p90 21) and
+only 1,787 cells were observed in all 23. 99.2 % of cells have at least one
+observation after the middle of the year, so a step in the second half is
+visible to almost every cell — but only weakly.
+
+**Power against an injected step**, injected at period 12 (bin 400) and
+measured as "found at the right bin":
+
+| true step | of all cells | of cells with ≥ 22 obs | of cells with all 23 obs | magnitude estimate (median) |
+|---|---|---|---|---|
+| +0.10 | 0.6 % | 1.5 % | 2.6 % | **+0.205** |
+| +0.20 | 3.6 % | 11.3 % | 19.1 % | **+0.257** |
+| +0.40 | 14.4 % | 46.9 % | 71.6 % | **+0.423** |
+
+Two things follow, and both matter for how the field may be used.
+
+*The estimator over-states a small step and is nearly unbiased on a large
+one.* A +0.10 step comes out at +0.205; a +0.40 step comes out at +0.423.
+This is a selection effect, not a fitting error: a magnitude is stored only
+for cells that cleared the threshold, and the cells that clear it are the ones
+with the largest noise, which inflates the step they appear to have. The
+inflation is worst for the steps that are barely detectable, which is exactly
+where a user would reach for the number. The stored magnitude is a *relative*
+signal — a −0.22 next to a +0.20 is meaningful, a +0.205 next to a +0.10 is
+not.
+
+*Power is a coverage question as much as a sensitivity question.* A +0.20
+step is found for 3.6 % of all cells but 19.1 % of the cells that saw the whole
+year. The region-wide number is diluted by cells that were never observed
+after the step; the per-fully-covered-cell number is the honest sensitivity.
+
+**The threshold is calibrated, and the calibration holds.** On the
+shuffled-residual null — the fitted series with its residuals permuted, so it
+keeps the real noise but loses the ordering — 1,030 of 128,236 cells (0.80 %)
+are flagged, against the 1 % the threshold claims.
+
+**But the real series flags 4.5 %, and that gap is not a bug in the
+calibration.** 5,760 cells carry a break on the real 2017 series against 0.80 %
+on the shuffled null: a 3.7-point excess. The shuffled null is a null of *no
+step in a series whose residuals are exchangeable*; the real series has
+*ordered* residuals that are not steps — an asymmetric phenology, a rain
+event, a cloud-driven dip in one bin — and the scan cannot tell those from a
+step, because a one-bin dip in a 23-point series *is* a step, statistically.
+An attempt to explain the excess by seasonal misfit (a single year's cycle is
+not a two-harmonic sinusoid) does not hold: with 3 harmonics the real flag
+rate falls only from 4.69 % to 4.21 % on a 25,000-cell subsample, while the
+null's false-positive rate *rises* to 1.30 % and the power of a +0.20 step
+*falls* from 3.64 % to 2.58 %. Two harmonics is kept, and the excess is
+recorded here as a property of the layer rather than tuned away.
+
+The practical reading: a break in this layer is a *candidate*, and a
+candidates-only layer is what Phase 1 promised. The break distribution is not
+uniform either — the three autumn bins 404, 406 and 407 carry 2,559 of the
+5,760 breaks, with bin 406 (2017-10-22) the largest at 988 and the Irma bin
+404 (2017-09-20) close behind at 784 — and the Rookery Bay shard has 91 of its
+205 breaks in the Irma bin alone, which is the first sign that the field is
+picking up something real and not only noise. Ranking Irma-affected cells
+without being told the date is Phase 2's acceptance test, and it has seven
+annual cycles to work with.
 
 ### 6.2 Anomaly fields (for cross-source comparison)
 
@@ -293,30 +434,53 @@ a genuine sub-pixel change one instrument resolves and the other cannot.
 The Phase 1 "first task" — usable observations per cell per year — is now
 measured from the STAC catalogue rather than guessed:
 
-- 2017, Landsat 7 + 8, per WRS path/row: **~1.9 scenes per 16-day bin**, present
-  in 22–23 of 23 bins → **~44 pre-cloud observations/cell/year**; after cloud
-  rejection the 25–35/year working figure below holds.
-- Grid counts: res 4 = 37 (regions), res 5 = 330, res 7 = 18,115, res 8 =
-  128,236.
+- 2017, Landsat 7 + 8: **383 scenes** across the 23 bins, **9–18 per bin**
+  (mean 16.7). Every bin has scenes; none is empty.
+- Grid counts, using H3's own "whole hexagon inside the bbox" rule: res 4 =
+  37 (fully contained cells), res 5 = 330, res 7 = **18,115**, res 8 =
+  **128,236**. Grouping the res-8 cells by res-4 parent gives **72 regions**
+  (§5).
+- Scene acceptance is by **intersection** (D-24), so the ~17 scenes per bin
+  are the whole path/row set over the bbox, not one scene that happens to
+  cover it.
 
 The pilot's own cache cannot answer the density question: `MAX_SCENES_PER_COMPOSITE
-= 12` saturates every wet composite. The product-size estimates below remain
-order-of-magnitude until Phase 1 builds a first period.
+= 12` saturates every wet composite. The product-size estimates below are now
+measured rather than estimated.
 
 ### 7.1 Storage
 
-| item | estimate |
-|---|---|
-| res 8, 16-day, 6 bands uint16 | ~440 MB gzipped |
-| res 7, 16-day | ~63 MB |
-| res 7, MODIS daily, 4 bands 8-bit | ~200–250 MB |
-| change fields | negligible (< 1%) |
-| **total, viewable** | **< 1 GB** |
+Measured on the 2017 build (23 bins), not estimated. The full-record column
+scales the 2017 figure by the 612 / 23 = 26.6× bin ratio, which is what a
+2000–2026 archive costs at the same design.
 
-The **mosaic cache is larger than the product**: ~1.16 GB per period at 30 m
-(6 bands × 2 B over ~9.7 × 10⁷ pixels), so ~710 GB for the full record and
-~27 GB for a single year. This is the artifact worth keeping; it is what makes
-res 9 nearly free later.
+| item | 2017 measured | full record (612 bins) |
+|---|---|---|
+| res 8, 16-day, 6 bands uint16 + change fields | 56.3 MB (72 shards) | ~1.50 GB |
+| res 7, 16-day | 8.21 MB (one file) | ~218 MB |
+| change fields | included in the shards above | included |
+| **total, viewable** | **64.5 MB** | **~1.7 GB** |
+| per-cell composite cache (`npz`, build accelerator) | 70.4 MB | ~1.9 GB |
+
+**The mosaic cache is an order of magnitude larger than the product, and that
+is the number that has to be planned against.** Measured: 15.27 GB for the 23
+bins of 2017 — a mean of **664 MB per bin** (259 – 817 MB) — which scales to
+**~406 GB for the full 612-bin record**. Deflate buys only about 1.75× over
+the raw uint16 DN (1.16 GB/period), because deflate does not exploit the
+16-bit structure of the DN values.
+
+That does not fit D-22's 30 GB budget, and it was never going to: the budget
+covers **one year of the cache**, not the record. Two consequences:
+
+- The 2017 cache (15.27 GB) is inside 30 GB with room to spare, so Phase 1
+  and any single-year experiment fit the budget as stated.
+- A full-record build needs ~400 GB of mosaic cache, or a retention policy
+  that keeps the archive (1.7 GB) and rebuilds a bin's mosaic on demand.
+  Rebuilding is cheap in storage and expensive in network: one bin is 664 MB
+  of reads.
+
+The mosaic is worth keeping for the years being worked on. It is not worth
+keeping for the whole record unless the machine has the disk.
 
 ### 7.2 Compute ranking
 
@@ -334,7 +498,7 @@ The expensive operation is scene reads for the 30 m tier: roughly
 
 **Cheap things that should not be cut for compute reasons:**
 
-- res 7 16-day (~63 MB) — an aggregation of an existing mosaic.
+- res 7 16-day (218 MB for the full record) — an aggregation of an existing mosaic.
 - MODIS daily — ~3% of Landsat pixel volume.
 - the change layer — minutes of numerics once the series exists.
 - res 7 / res 9 resampling — cheap once the mosaic exists.
@@ -342,6 +506,16 @@ The expensive operation is scene reads for the 30 m tier: roughly
 **One structural optimisation:** composite to a single common 30 m mosaic per
 period, then sample H3 cells from it once. Reprojecting each scene separately
 against the hex grid costs 2–4× more for identical output.
+
+**Measured cold load (2017, res-7 overview):** 386 ms end to end — manifest
+73 ms, download 56 ms, inflate 182 ms, parse 73 ms — against the 3 s budget.
+7.83 MB served, 12.8 MB inflated. The download is not the bottleneck and
+neither is the parse; inflating the bundle is the largest single term, and
+it is the term that grows with the record (the overview is one file holding
+every cell, so its size is linear in the bin count). The measurement moves a
+little between runs — 463 ms on a re-run, of which 254 ms is the inflate —
+so the honest figure is *under half a second*, and the margin against the
+3 s budget is a factor of six, not a factor of eight.
 
 ## 8. Viewer changes
 
@@ -370,7 +544,7 @@ Stages, each independently re-runnable:
 1. `stac` — enumerate scenes per bin and source.
 2. `mosaic` — write the per-period 30 m mosaic. **Cache this.**
 3. `h3` — sample mosaic → cells, composite, record `n_obs`/source.
-4. `change` — harmonic fit + CUSUM per cell.
+4. `change` — harmonic fit + step-regressor F-scan per cell.
 5. `shard` — write H3 parent shards + manifest.
 6. `index` — manifest and viewer bundle metadata.
 
@@ -402,3 +576,54 @@ Carried from the pilot; do not rediscover them.
   next row.
 - **Errors that draw nothing are invisible.** Element-count assertions in the
   browser catch these; code review does not.
+
+### 10.1 Regional build traps (Phase 1)
+
+- **A SAS token expires long before the build finishes.** Planetary Computer's
+  signed asset URLs last about 45 minutes; a 2017 regional build takes about
+  3.5 hours. A URL cached at the start of the build is dead by the middle of
+  it, and the failure looks like "no data" rather than like an auth error —
+  every mosaic came back empty. Cache the **unsigned** URL and sign it at
+  read time, and surface a signing failure as an error rather than as an
+  empty band.
+
+- **A child's centroid can lie outside its parent's polygon.** H3 builds a
+  child's geometry from its parent's, so for about 6 % of res-8 cells the
+  centre falls 0.5–0.9 km outside the res-4 hexagon that contains the cell's
+  area. `h3.latlng_to_cell(centre, 4)` then returns the *neighbouring* res-4
+  cell, while `h3.cell_to_parent(cell, 4)` returns the right one. Group by
+  `cell_to_parent`, never by a point lookup.
+
+- **`np.flatnonzero` on an array of indices returns the wrong cells.** A
+  boolean mask and a list of row indices are both "a selection", and
+  `flatnonzero` silently treats the second as the first: index 0 is dropped
+  and every later cell shifts by one. The two cases need different code.
+
+- **A ratio index is not bounded by its own range.** `(a − c) / (a + c)` is
+  only in [−1, 1] when `a` and `c` do not straddle zero. Over dark water
+  Collection 2's −0.2 offset puts one band near zero and the other clearly
+  negative, and NDVI of −200 came out of it. The same-sign rule is what
+  actually bounds the ratio; a denominator epsilon alone does not.
+
+- **Per-cell containment tests do not scale to 250,000 cells.** The pilot's
+  shapely `contains` test per hexagon takes minutes at res 8. H3's own
+  rasteriser applies the same rule (`contain="full"`) in about a tenth of a
+  second.
+
+- **Days-since-epoch fits in a u16 only until 2179.** `break_date` is stored
+  as days since 2000-01-01 to keep it an integer that survives the block
+  format; 2017 is ~6,300–6,600 days, and the field has to be widened before
+  the archive reaches 2179-10-19.
+
+- **A hung HTTP read is a stalled build, not a slow one.** GDAL's HTTP driver
+  has no default timeout, so one range request that never returns freezes a
+  worker indefinitely — measured: 13 minutes with zero bytes read and every
+  thread parked. Set `GDAL_HTTP_TIMEOUT` so the read fails and is retried
+  instead.
+
+- **A file on disk is not a finished file.** A build that is interrupted
+  mid-write leaves a truncated GeoTIFF behind, and the next run — which
+  decides what to reuse from what is on disk — takes it for a cache hit and
+  builds a mosaic with a hole in it. Write each output to a temporary name
+  and rename it into place, and check a cached output by opening it and
+  reading its last block, not by looking at its name.
