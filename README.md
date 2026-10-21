@@ -1,4 +1,4 @@
-# H3lab — hexagon biographies for Rookery Bay land-cover change
+# H3lab — hexagon biographies for Rookery Bay surface-reflectance change
 
 A pilot that replaces raster pixels with **Uber H3 hexagons** at four
 resolutions, builds a per-cell, per-season surface-reflectance record from
@@ -7,6 +7,10 @@ viewer where any single hexagon can be selected and read as a *biography*.
 
 This is the exploratory half of the WetCoast work: the mechanism for looking
 at habitat change one place at a time, rather than at a stack of rasters.
+
+> **Planning the regional build?** Start with [`PLAN.md`](PLAN.md), then
+> [`docs/DESIGN.md`](docs/DESIGN.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md).
+> This README documents the finished Rookery Bay pilot.
 
 ---
 
