@@ -59,6 +59,11 @@ a resample. **MODIS belongs at res 7 and must not be pushed finer.**
 Res 8 is ~860 m across, giving ~28 Landsat 30 m pixels per cell — a genuine
 spatial aggregate.
 
+**Measured 2026-10-21** (centre-inside the bbox, same `contains` rule as
+`grid.py`): res 4 = **37** cells (the region/shard unit, D-21), res 5 = 330,
+res 7 = **18,115**, res 8 = **128,236**. The res 7/8 counts confirm the
+order-of-magnitude figures above.
+
 ## 3. Temporal model
 
 This is the most delicate part of the design. Read the seasonality section
@@ -132,6 +137,14 @@ Per cell, per bin, per source family:
 
 Do **not** blend different sensor families into one value. Landsat/HLS and
 MODIS remain separate series; see §4.3.
+
+**Order of operations (regional build).** The pilot took the *spatial mean*
+inside a cell first, then the *temporal median* across a season's scenes. The
+regional build goes **mosaic-first** (D-16): the per-pixel temporal median is
+formed first, then the spatial mean inside each cell. For the ~2 observations a
+16-day bin actually holds these are effectively identical, but the meaning of
+`n_obs` changes — it is now *contributing scenes per pixel*, not scenes per
+composite. Do not silently compare the two conventions.
 
 ## 4. Sources
 
@@ -214,20 +227,21 @@ between a trend and an inventory of satellite launches.
 
 Static files, no server.
 
-- **Shard key:** H3 res 5 parent (~252 km²), giving ~345 parents over the bbox,
-  of which the land/coastal subset is smaller.
+- **Shard key:** H3 res 4 region (~1,770 km², **37 regions** over the bbox),
+  each carrying the **res-8** cells inside it. The **res-7 overview is a single
+  unsharded bundle** for the whole bbox. (D-21 supersedes the res-5 key.)
 - **Per shard:** baked geometry, the 16-day series, and the change fields.
 - **Manifest:** lists shards, schema version, epoch, bin count, and a content
   hash per shard so the viewer can detect stale files.
 
-Estimated shard sizes:
+Estimated shard sizes (23 bins in Phase 1; ~612 in the full build):
 
-| tier | cells/shard | bytes | estimate |
-|---|---|---|---|
-| res 8, 16-day | ~340 | 340 × 612 × 12 | ~2.5 MB |
-| res 7, 16-day | ~49 | 49 × 612 × 12 | ~0.4 MB |
-| res 7, MODIS daily | ~49 | 49 × ~9,800 × 4 | ~1.9 MB |
-| res 9, 16-day (Phase 5) | ~2,400 | — | ~18 MB |
+| tier | cells/shard | estimate |
+|---|---|---|
+| res 8, 16-day (region) | ~3,500 | ~2 MB |
+| res 7, 16-day (overview, one file) | 18,115 | ~12 MB raw / ~4 MB gz |
+| res 7, MODIS daily | ~49 | ~1.9 MB (per res-5 parent, unchanged) |
+| res 9, 16-day (Phase 5) | ~2,400 | ~18 MB |
 
 At these sizes MapLibre handles a shard as a plain GeoJSON source. **Sharding
 removes the need for vector tiles**, which was the largest predicted viewer
@@ -273,6 +287,21 @@ pointing opposite ways. That usually means a mixed pixel, a cloud artefact, or
 a genuine sub-pixel change one instrument resolves and the other cannot.
 
 ## 7. Sizes and compute
+
+### 7.0 Measured inputs (2026-10-21)
+
+The Phase 1 "first task" — usable observations per cell per year — is now
+measured from the STAC catalogue rather than guessed:
+
+- 2017, Landsat 7 + 8, per WRS path/row: **~1.9 scenes per 16-day bin**, present
+  in 22–23 of 23 bins → **~44 pre-cloud observations/cell/year**; after cloud
+  rejection the 25–35/year working figure below holds.
+- Grid counts: res 4 = 37 (regions), res 5 = 330, res 7 = 18,115, res 8 =
+  128,236.
+
+The pilot's own cache cannot answer the density question: `MAX_SCENES_PER_COMPOSITE
+= 12` saturates every wet composite. The product-size estimates below remain
+order-of-magnitude until Phase 1 builds a first period.
 
 ### 7.1 Storage
 
@@ -354,6 +383,11 @@ Rules carried from the pilot:
 ## 10. Traps already paid for
 
 Carried from the pilot; do not rediscover them.
+
+- **A ≥ 95 % AOI-coverage test does not scale.** The pilot accepts a scene only
+  when it covers 95 % of the ~310 km² AOI. No Landsat scene covers the 87,000 km²
+  regional bbox, so that test rejects every scene at regional extent. Accept on
+  **intersection** and record the covered fraction (D-24).
 
 - **`(-x) % 16` differs between JavaScript and Python.** Python returns
   non-negative, JavaScript sign-follows. This silently misaligned every binary

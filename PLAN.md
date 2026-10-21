@@ -102,6 +102,9 @@ cadence.
 
 **Goal:** prove every new mechanism on the cheapest possible unit of work.
 
+**Plan:** [`docs/PHASE1.md`](docs/PHASE1.md) — scope, measured inputs, stage
+breakdown, region model, exit-criteria tests, work order.
+
 - Extent: full bbox.
 - Period: **2017 only** (23 bins). Chosen because it contains Hurricane Irma,
   so the imagery for the eventual acceptance test exists.
@@ -190,6 +193,9 @@ Full log with rationale in `docs/DECISIONS.md`. Summary:
 - MODIS daily at res 7 for event timing.
 - Never blend different sensors in value space; compare in anomaly space.
 - Change-point statistics live in the archive.
+- Region shards are H3 res 4; the res-7 overview is one unsharded shard (D-21).
+- The mosaic cache is retained, compressed; the build machine is sized for it
+  (D-22).
 - Archive packaging/publication deferred.
 
 ## 7. Deferred / explicitly not now
@@ -215,9 +221,12 @@ Tracked here until answered. Each blocks or shapes a phase.
 
 1. **Does MODIS-only suffice for the daily tier in Phase 2, or does VIIRS need
    to come earlier?** Current plan: MODIS only.
-2. **How many observations per cell per year does South Florida actually
+2. ~~**How many observations per cell per year does South Florida actually
    yield after cloud rejection?** Estimate used in sizing is 25–35/year. The
-   pilot's cached data can measure this before Phase 1 starts.
+   pilot's cached data can measure this before Phase 1 starts.~~ **Answered
+   2026-10-21** — measured from STAC, not the cache (which saturates at the
+   12-scene cap): ~1.9 scenes/16-day bin for 2017 L7+L8 → ~44/year pre-cloud,
+   consistent with 25–35 after cloud. Recorded in `docs/DESIGN.md` §7.0.
 3. **Does the change detector generalise beyond NDVI in Phase 4+?** Currently
    NDVI only. Adding indices multiplies detector work.
 4. **Is the res 7 16-day tier worth keeping once res 7 MODIS daily exists?**
@@ -233,9 +242,11 @@ Tracked here until answered. Each blocks or shapes a phase.
 Read, in order:
 
 1. This file.
-2. `docs/DESIGN.md` — how the system is meant to work.
-3. `docs/DECISIONS.md` — why, and what was rejected.
-4. `README.md` — the pilot's technical narrative, performance notes and traps.
+2. `docs/PHASE1.md` — the working plan for the current phase (scope, stages,
+   region model, exit-criteria tests, work order).
+3. `docs/DESIGN.md` — how the system is meant to work.
+4. `docs/DECISIONS.md` — why, and what was rejected.
+5. `README.md` — the pilot's technical narrative, performance notes and traps.
 
 To reproduce the pilot:
 
@@ -246,23 +257,25 @@ python3 -u -m h3lab.run --years 2013:2025 --resolutions 8,9,10 --export
 ./serve.sh          # viewer at http://127.0.0.1:8765/viewer/
 ```
 
-**First task for Phase 1:** measure usable observations per cell per year from
-the pilot's cached composites, then replace the sizing estimate in
-`docs/DESIGN.md` §7 with a measured number. Everything downstream depends on
-that figure.
+**First task for Phase 1 (done, 2026-10-21):** measure usable observations per
+cell per year. Measured from the STAC catalogue rather than the pilot cache —
+the cache saturates at `MAX_SCENES_PER_COMPOSITE = 12` and cannot answer it.
+Result: ~1.9 scenes per 16-day bin for 2017 L7+L8, ~44/year pre-cloud. Now in
+`docs/DESIGN.md` §7.0. Everything downstream depends on that figure.
 
 ## 10. Documentation map
 
 | file | contents |
 |---|---|
 | `PLAN.md` | goals, phases, scope, deferred work, open questions |
+| `docs/PHASE1.md` | the current phase: scope, measured inputs, stages, region model, tests, work order |
 | `docs/DESIGN.md` | extent, grids, temporal model, sources, tiers, computes, viewer |
 | `docs/DECISIONS.md` | dated decision log with alternatives and consequences |
 | `README.md` | the pilot: format, viewer internals, performance, traps |
 
 ## 11. Known documentation debt
 
-`README.md` predates the removal of land-cover classification. Its title and
-opening sections still describe a "land-cover change" product and mention
-fractional cover and H3 res 11, none of which the code does any more. The code
-and these planning documents are correct; the README's framing needs a pass.
+**Cleared 2026-10-21.** The stale land-cover framing flagged here is fixed: the
+viewer page title, and the README's res-11 / "shipping all four" wording, now
+match the code (spectra and indices only; res 11 built but not exported). No
+outstanding documentation debt.

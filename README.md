@@ -33,11 +33,12 @@ Resolution is chosen against the Landsat sampling scale:
 | 8 | 678 000 m² | ~750 | robust regional aggregation |
 | 9 | 97 000 m² | ~107 | site level — the default |
 | 10 | 13 800 m² | ~15 | near-native, sparse |
-| 11 | 1 980 m² | ~2 | sub-pixel: fractional cover only |
+| 11 | 1 980 m² | ~2 | sub-pixel detail (built, not exported) |
 
-At res 11 a cell holds about two Landsat pixels, so a hard land-cover class is
-close to meaningless and the *fractions* carry the information. That contrast
-is the point of shipping all four.
+At res 11 a cell holds about two Landsat pixels, so a per-cell value is closer
+to a single measurement than to an aggregate. `grid.py` builds it and the
+pipeline exercises it, but it is not in the default export — 26 periods at that
+cell count is not practical to hand a browser (see Honest limitations).
 
 ## Why NASA data, and which product
 

@@ -321,3 +321,80 @@ time, cheaper per-cell summaries — not deeper per-cell analysis.
 VIIRS adds density only after 2012, for a second product and a second QA path.
 
 **Consequence.** Daily density improves notably from 2012 in a later revision.
+
+---
+
+## D-21 — Shard by H3 res-4 region; res-7 is one overview shard
+*2026-10-21 · accepted · project lead*
+
+**Decision.** The detail tier is sharded by **H3 res 4** (~1,770 km², **37
+regions** over the bbox), each shard carrying the **res-8** cells inside it. The
+**res-7 overview is a single unsharded bundle** covering the whole bbox.
+
+**Why.** "Shards are regions." res 4 yields a handful of regions that match the
+proposal's RECOVER-area framing and keeps a shard (~2 MB, ~3,500 cells × 23
+periods) small enough for MapLibre as plain GeoJSON. One overview file is the
+simplest way to hit the < 3 s cold load at the current bin count.
+
+**Supersedes.** D-10's res-5 shard key (~330 shards). res 5 is still useful as an
+internal grouping but is too fine to call a "region."
+
+**Rejected.** res 5 as the region (too many to be "several"); res 3 (3 regions,
+too coarse to fetch per viewport).
+
+**Consequence.** `DESIGN.md` §5's shard table changes; the viewer fetches one
+overview file then per-region res-8 shards. Granularity is a one-line change.
+
+---
+
+## D-22 — Retain the mosaic cache; budget the build machine for it
+*2026-10-21 · accepted · project lead (RAM sizing proposed)*
+
+**Decision.** Keep the per-period 30 m mosaic (D-16) as a **compressed** GeoTIFF.
+Budget **30 GB** of disk, with a machine upgrade if the build exceeds it.
+
+**Why.** Retaining the mosaic is what makes res 9 and res 7 nearly free later
+(D-16, D-17). A raw mosaic is ~1.16 GB/period (~27 GB for 2017); deflate
+compression over a mostly-water bbox brings the estimate to 7–14 GB.
+
+**Proposed, awaiting the machine.** Target **≥ 64 GB RAM**. A full-bbox period is
+only 96 M px (2.3 GB for six float32 bands), so ample RAM lets the mosaic stage
+read scenes whole and take the median directly, **removing the tiled/windowed
+read path** — the most error-prone new code in the build. The plan is written
+band-at-a-time so 32 GB also works; 64 GB is simply simpler.
+
+**Consequence.** No build-and-discard; the mosaic is a first-class artifact.
+
+---
+
+## D-23 — Build region-first, starting with Rookery Bay
+*2026-10-21 · accepted · project lead*
+
+**Decision.** Build and validate the **Rookery Bay region shard** (res-4 parent
+`844413dffffffff`) for 2017 end-to-end before rolling the remaining ~36 regions.
+
+**Why.** It is the smallest region with a known event: the pilot already shows
+Hurricane Irma mangrove loss at Rookery Bay, so the first shard can be checked
+against an existing result. It surfaces every unknown on the cheapest unit of
+work, consistent with the Phase 1 goal.
+
+**Consequence.** Phase 1 delivers a working region shard + overview early, then
+expands. Region order after Rookery Bay is unconstrained.
+
+---
+
+## D-24 — Regional scene acceptance is intersection-based, not full-AOI coverage
+*2026-10-21 · accepted · engineering*
+
+**Decision.** At regional extent, accept a scene when its true footprint
+**intersects** the bbox and record the covered fraction. Do not require the scene
+to cover ≥ 95 % of the AOI.
+
+**Why.** The pilot's `_scene_covers_aoi` requires ≥ 95 % AOI coverage. No Landsat
+scene covers 87,000 km², so that test rejects **every** scene for the regional
+bbox — a hard blocker. The 95 % rule was correct for a ~310 km² AOI and wrong for
+a regional one.
+
+**Consequence.** Mosaic assembly must combine several path/rows per period. The
+STAC `geometry`-is-a-swath-envelope trap still applies: the footprint comes from
+the raster header, not the catalogue geometry.
