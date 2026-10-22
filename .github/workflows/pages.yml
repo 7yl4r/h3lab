@@ -1,0 +1,85 @@
+name: pages
+
+# Publish the viewers and the archive they read to GitHub Pages.
+#
+# What goes on the site is *only* the viewable archive:
+#
+#   viewer/*.html            the two viewers + the landing page
+#   data/regional/           the res-7 overview, the 72 res-8 shards, the manifest
+#   data/rookery_bay_h3_*    the three pilot bundles
+#
+# What does not, and must not: data/mosaic_cache/ (15.3 GB for 2017 alone) and
+# data/cache_regional/ (70 MB of npz). They are build accelerators, they are
+# gitignored, and they would blow the 1 GB published-site limit on their own.
+# See docs/DESIGN.md §7.1 and D-29/D-30.
+#
+# The size budget runs before the upload, so a record that outgrew GitHub Pages
+# fails the deploy instead of publishing a truncated site. Run it locally with
+#   python tools/measure/site_budget.py site --check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "viewer/**"
+      - "data/regional/**"
+      - "data/rookery_bay_h3_*"
+      - "tools/measure/site_budget.py"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p site/viewer site/data/regional
+          cp viewer/*.html site/viewer/
+          cp data/regional/* site/data/regional/
+          cp data/rookery_bay_h3_res*.bin.gz site/data/
+          cp data/rookery_bay_h3_meta.json site/data/
+          printf '%s\n' \
+            '<!doctype html><meta charset="utf-8"><title>h3lab</title>' \
+            '<meta http-equiv="refresh" content="0;url=viewer/">' \
+            '<a href="viewer/">h3lab viewers</a>' > site/index.html
+          echo "site assembled:"
+          du -sh site
+          find site -type f | wc -l
+
+      - name: Check the Pages size budget
+        run: python3 tools/measure/site_budget.py site --check
+
+      - uses: actions/configure-pages@v5
+        with:
+          # Turn Pages on with source = "GitHub Actions" if it is not already.
+          # Needs the pages: write permission granted above. If the repository
+          # policy blocks it, enable Pages once by hand (Settings -> Pages ->
+          # Source: GitHub Actions) and re-run this job.
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,1547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hexagon Biographies &mdash; Rookery Bay surface-reflectance change</title>
+
+<link rel="stylesheet" href="https://esm.sh/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+
+<script type="importmap">
+{
+  "imports": {
+    "maplibre-gl": "https://esm.sh/maplibre-gl@4.7.1"
+  }
+}
+</script>
+
+<style>
+:root{
+  --bg:#12141a; --panel:#1a1d26; --panel2:#222633; --line:#333a4a;
+  --fg:#e7eaf0; --muted:#98a2b8; --accent:#7fd4c1; --warn:#e0a458; --nd:#5b5f6b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+  font:13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+#map{position:absolute;inset:0}
+.maplibregl-ctrl-attrib{background:rgba(18,20,26,.75)!important;font-size:10px}
+.maplibregl-ctrl-attrib a{color:#8b93a7!important}
+
+#bar{position:absolute;top:0;left:0;right:0;z-index:10;display:flex;gap:12px;
+  align-items:center;flex-wrap:wrap;padding:8px 13px;background:rgba(18,20,26,.93);
+  border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}
+#bar h1{font-size:13px;margin:0;font-weight:650;white-space:nowrap}
+#bar h1 small{color:var(--muted);font-weight:400;font-size:11px}
+.ctl{display:flex;align-items:center;gap:5px}
+.ctl label{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px}
+select,button{background:var(--panel2);color:var(--fg);border:1px solid var(--line);
+  border-radius:6px;padding:5px 8px;font:inherit;font-size:12px;cursor:pointer}
+select:hover,button:hover{border-color:#4a556e}
+button.on{background:var(--accent);color:#0d1412;border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.4;cursor:not-allowed}
+input[type=range]{accent-color:var(--accent)}
+.spacer{flex:1}
+
+#time{position:absolute;left:14px;bottom:14px;z-index:10;background:rgba(18,20,26,.94);
+  border:1px solid var(--line);border-radius:10px;padding:10px 13px;backdrop-filter:blur(8px)}
+#time .row{display:flex;align-items:center;gap:9px}
+#time .per{font-variant-numeric:tabular-nums;font-weight:650;min-width:96px}
+#ticks{position:relative;height:42px;margin-top:7px;width:min(560px,60vw)}
+.tick{position:absolute;transform:translateX(-50%);font-size:9.5px;color:var(--muted);
+  text-align:center;line-height:1.15;cursor:pointer}
+.tick i{display:block;width:1px;height:7px;background:var(--line);margin:0 auto 2px}
+.tick.sel{color:var(--accent);font-weight:700}.tick.sel i{background:var(--accent)}
+.tick:hover{color:#fff}
+.ev{position:absolute;transform:translateX(-50%);top:0;font-size:9px;color:var(--warn);
+  white-space:nowrap;pointer-events:auto;cursor:help}
+.ev.alt{top:11px}
+.ev::before{content:"";position:absolute;left:50%;top:11px;width:1px;height:30px;
+  background:var(--warn);opacity:.4;z-index:-1}
+
+#legend{position:absolute;right:14px;bottom:14px;z-index:10;background:rgba(18,20,26,.94);
+  border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:190px;
+  backdrop-filter:blur(8px);font-size:11.5px}
+#legend h3{margin:0 0 7px;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+.lrow{display:flex;align-items:center;gap:7px;margin:3px 0}
+.sw{width:14px;height:14px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(255,255,255,.14)}
+.ramp{height:11px;border-radius:3px;margin:4px 0 3px;border:1px solid var(--line)}
+.rlabels{display:flex;justify-content:space-between;color:var(--muted);font-size:10px}
+
+#extremes{position:absolute;right:14px;top:var(--paneltop,58px);z-index:10;width:236px;
+  background:rgba(18,20,26,.94);border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;backdrop-filter:blur(8px);max-height:44vh;overflow-y:auto}
+#extremes h3{margin:0 0 7px;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+.ex{cursor:pointer;padding:4px 5px;border-radius:5px;display:flex;gap:7px;align-items:center}
+.ex:hover{background:var(--panel2)}
+.ex .rk{color:var(--muted);font-size:10px;width:14px;font-variant-numeric:tabular-nums}
+.ex .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.ex .vl{font-variant-numeric:tabular-nums;font-weight:650}
+
+#insp{position:absolute;top:var(--paneltop,58px);left:14px;z-index:10;width:432px;max-height:calc(100vh - 196px);
+  overflow-y:auto;background:rgba(18,20,26,.96);border:1px solid var(--line);border-radius:12px;
+  backdrop-filter:blur(10px);padding:14px 15px;box-shadow:0 10px 34px rgba(0,0,0,.45)}
+#insp h2{margin:0 0 3px;font-size:14px;font-weight:650}
+.sub{color:var(--muted);font-size:11.5px;margin-bottom:11px}
+.sub code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:11px;color:var(--accent)}
+.narr{background:var(--panel2);border-left:3px solid var(--accent);border-radius:0 7px 7px 0;
+  padding:9px 11px;margin:0 0 12px;font-size:12.5px}
+.narr b{color:var(--accent)}
+.sect{margin:14px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;
+  color:var(--muted);border-top:1px solid var(--line);padding-top:9px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:7px 12px;margin:7px 0}
+.kv{display:flex;justify-content:space-between;gap:8px;font-size:11.5px}
+.kv b{font-weight:600;font-variant-numeric:tabular-nums}
+.kv span{color:var(--muted)}
+.ribbon{display:flex;gap:2px;margin:8px 0 4px}
+/* The segments carry a fixed height, so shrinking the container alone does
+   nothing -- they overflow and land on top of the next row. A compact variant
+   has to shorten the segments themselves. */
+.rseg{flex:1;height:30px;border-radius:4px;display:flex;align-items:flex-end;justify-content:center;
+  font-size:8.5px;color:#0b0d11;font-weight:700;padding-bottom:1px;cursor:pointer}
+.rseg.sel{outline:2px solid #fff;outline-offset:-2px}.rseg.dim{opacity:.22}
+.riblabels{display:flex;gap:2px;font-size:9px;color:var(--muted)}.riblabels div{flex:1;text-align:center}
+.chart{width:100%;height:auto;display:block}
+/* The nine discrete steps are the legend: showing a smooth gradient there
+   would promise a resolution the cells do not have. */
+.heatleg{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:5px;
+  font-size:9.5px;color:var(--muted)}
+.heatleg .hlbar{display:flex;height:9px;border-radius:2px;overflow:hidden}
+.heatleg .hlbar i{display:block;width:13px;height:9px}
+.heatleg .hlmiss{display:inline-block;width:13px;height:9px;border-radius:2px;
+  background:#0b0d12;border:1px solid #2c3242}
+.heatleg .hlsep{display:inline-block;width:1px;height:11px;background:#2c3242;margin:0 4px}
+.close{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--muted);
+  font-size:19px;line-height:1;padding:2px 5px}
+.close:hover{color:#fff}
+.hint{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:9;color:var(--muted);
+  font-size:11.5px;background:rgba(18,20,26,.9);padding:6px 13px;border-radius:20px;
+  border:1px solid var(--line);pointer-events:none;transition:opacity .4s}
+#loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  z-index:50;background:var(--bg);font-size:14px;color:var(--muted);flex-direction:column;gap:12px}
+.bar2{width:240px;height:3px;background:var(--panel2);border-radius:2px;overflow:hidden}
+.bar2 div{height:100%;width:30%;background:var(--accent);animation:sl 1.05s infinite ease-in-out}
+@keyframes sl{0%{transform:translateX(-100%)}100%{transform:translateX(370%)}}
+.kbd{font-family:ui-monospace,monospace;background:var(--panel2);border:1px solid var(--line);
+  border-radius:3px;padding:0 4px;font-size:10.5px}
+#diag{position:absolute;right:14px;top:var(--paneltop,58px);z-index:11;color:var(--muted);
+  font-size:10.5px;background:rgba(18,20,26,.88);padding:3px 10px;border-radius:20px;
+  border:1px solid var(--line);pointer-events:auto;font-variant-numeric:tabular-nums;
+  max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#perf{position:absolute;left:50%;transform:translateX(-50%);top:var(--paneltop,58px);z-index:9;color:var(--muted);
+  font-size:10.5px;background:rgba(18,20,26,.88);padding:3px 10px;border-radius:20px;
+  border:1px solid var(--line);pointer-events:none;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="bar">
+  <h1>Rookery Bay hexagon biographies <small id="srcline"></small></h1>
+  <div class="ctl"><label>Res</label><select id="res"></select></div>
+  <div class="ctl"><label>Season</label><select id="season">
+    <option value="all">both</option><option value="wet">wet</option><option value="dry">dry</option></select></div>
+  <div class="ctl"><label>Colour</label><select id="colormode"></select></div>
+  <div class="ctl" id="deltaidxctl" style="display:none"><label>of</label><select id="deltaidx"></select></div>
+  <div class="ctl" id="stabilityctl" style="display:none"><label>as</label><select id="stabmetric">
+    <option value="churn">NDVI churn</option>
+    <option value="angle">spectral angle</option></select></div>
+  <div class="ctl"><label>Baseline</label><select id="baseline"></select></div>
+  <div class="ctl"><label>Opacity</label><input type="range" id="opacity" min="15" max="100" value="80" style="width:96px" /></div>
+  <div class="spacer"></div>
+  <div class="ctl"><label>Rank cells by</label><select id="extremesort">
+    <option value="delta">largest index change</option>
+    <option value="churn">most unsettled spectra</option>
+    <option value="stable">settlest spectra</option></select></div>
+  <div class="ctl"><label>Satellite</label><button id="basemap" class="on">on</button></div>
+</div>
+
+<div id="diag"></div>
+<div id="perf"></div>
+
+<div id="time">
+  <div class="row">
+    <button id="play" title="Play / pause (space)">&#9654;</button>
+    <div class="per" id="perlabel">&mdash;</div>
+    <div class="ctl"><label>Period</label><input type="range" id="slider" min="0" max="0" value="0" style="width:200px" /></div>
+    <div class="ctl"><label>Speed</label><select id="speed">
+      <option value="1600">slow</option><option value="800" selected>normal</option><option value="380">fast</option></select></div>
+  </div>
+  <div id="ticks"></div>
+</div>
+
+<div id="legend"></div>
+<div id="extremes"></div>
+<div id="insp" style="display:none"></div>
+<div class="hint" id="hint">Click any hexagon for its biography &nbsp;&middot;&nbsp; <span class="kbd">space</span> play &nbsp; <span class="kbd">&larr;</span><span class="kbd">&rarr;</span> step &nbsp; <span class="kbd">esc</span> close</div>
+
+<div id="loading"><div>loading composites</div><div class="bar2"><div></div></div></div>
+
+<script type="module">
+import maplibregl from 'maplibre-gl';
+
+const $ = s => document.querySelector(s);
+const STEM = '../data/rookery_bay_h3';
+const BLOCK_CACHE = {};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const fmt=(v,n=3)=>v==null||!isFinite(v)?'&mdash;':v.toFixed(n);
+
+// ---------------------------------------------------------------- state
+const S={
+  data:null, resKey:null, mode:'ndvi', deltaIdx:'ndvi', stabMetric:'churn',
+  extremeSort:'delta', stabCache:{},
+  periodIdx:0, baselineIdx:0, season:'all', opacity:80,
+  periods:[], selected:null, playing:false, timer:null, speed:800,
+  satellite:true, geomCache:null, perf:0
+};
+let FC=null;           // current FeatureCollection (geometry cached, colours swapped)
+let FEATCOL=null;      // per-period colour strings, [period][cellIndex]
+
+// ---------------------------------------------------------------- palettes
+const RAMPS={
+  veg:[[122,94,62],[192,177,112],[150,186,96],[70,145,70],[20,95,55]],
+  water:[[168,148,100],[142,182,192],[70,140,190],[30,80,170]],
+  fire:[[60,110,90],[182,200,120],[236,170,70],[215,90,60],[150,30,40]],
+  diff:[[40,90,170],[120,160,190],[236,236,232],[240,180,110],[180,50,50]],
+  frac:[[25,28,36],[45,80,80],[70,150,110],[120,200,140],[200,240,180]],
+  // teal = settled, amber/red = unsettled
+  stab:[[38,158,140],[120,200,182],[240,222,168],[232,150,78],[198,66,66]]
+};
+const NODATA='#282b34';
+
+function hex(v){ return '#'+v.map(c=>clamp(Math.round(c),0,255).toString(16).padStart(2,'0')).join(''); }
+function rampColor(t,stops){
+  if(t==null||!isFinite(t)) return '#3a3c46';
+  t=clamp(t,0,1);
+  const x=t*(stops.length-1), i=Math.min(Math.floor(x),stops.length-2), f=x-i;
+  const a=stops[i], b=stops[i+1];
+  return hex([0,1,2].map(k=>a[k]+(b[k]-a[k])*f));
+}
+
+/* ---- display scaling -------------------------------------------------
+ * Colour ranges are display choices, not physics. Index ranges come from
+ * config.INDEX_SPECS so the legend and the ramp cannot disagree; band caps
+ * are fixed here and shown on the legend, because reflectance has no natural
+ * ceiling and deriving one from the data would make two resolutions look
+ * incomparable.
+ */
+const DELTA_SPAN = 0.3;                 // +/- span of the change-vs-baseline ramp
+const BAND_SPAN = {blue:0.20, green:0.30, red:0.30, nir:0.60, swir1:0.50, swir2:0.40};
+RAMPS.spec=[[12,14,22],[58,62,84],[128,132,150],[232,222,192]];
+const DOMAIN_RAMP = {greenness:'veg', 'open water':'water',
+                     'canopy moisture':'frac', 'burn / bare substrate':'fire'};
+function spec(k){ return (S.data.meta.index_specs||{})[k]||{}; }
+function idxRange(k){ const r=spec(k).range; return r||[-1,1]; }
+function idxRamp(k){
+  const dom=spec(k).domain;
+  return RAMPS[DOMAIN_RAMP[dom]||'veg'];
+}
+function idxLabel(k){ return spec(k).label||k.toUpperCase(); }
+
+// Chart colours per band, keyed to the band's own wavelength -- the
+// convention for plotting spectral response, where visible bands get their
+// real colour and the near-infrared continues the hue wheel past red.
+// blue 482nm -> green 562 -> red 655 -> NIR 865 (crimson) -> SWIR1 1610
+// (violet) -> SWIR2 2200 (indigo). Separated enough to read on a dark panel,
+// which all-single-colour could not manage.
+const BAND_COLORS = {
+  blue:'#4d8dfa',
+  green:'#31c275',
+  red:'#f4574f',
+  nir:'#e8499f',
+  swir1:'#b25ff0',
+  swir2:'#5f7cf2',
+};
+function bandColor(b){ return BAND_COLORS[b]||'#9aa4bb'; }
+function bandLabel(b){
+  const i=(S.data.meta.band_info||{})[b];
+  return i ? `${i.label} ${i.nm}nm` : b;
+}
+function rgba(hexStr,a){
+  const h=hexStr.replace('#','');
+  const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),bl=parseInt(h.slice(4,6),16);
+  return `rgba(${r},${g},${bl},${a})`;
+}
+
+// Chart colours per index. Distinct hues, all readable on the dark panel.
+// NDWI and MNDWI cannot both be blue, and SAVI overlaps NDVI in hue, so these
+// are spaced deliberately rather than taken from the map ramps.
+const INDEX_COLORS = {
+  ndvi:'#7fd4a1',   // green
+  ndwi:'#6aa9e0',   // blue
+  mndwi:'#b48ee0',  // violet
+  ndmi:'#e0c060',   // amber
+  nbr:'#e07a6a',    // salmon
+  savi:'#5fd0d0',   // cyan
+};
+
+
+// ---------------------------------------------------------------- load
+async function fetchJSON(url){
+  const r=await fetch(url);
+  if(!r.ok) throw new Error(`${url} -> HTTP ${r.status}`);
+  return r.json();
+}
+const isMissing = v => v==null || typeof v==='number' && Number.isNaN(v);
+
+/** Timing/diagnostic log. Surfaced in the UI so a slow load can be attributed
+ *  to a stage instead of guessed at. */
+const DIAG = [];
+function mark(stage, ms, note){
+  DIAG.push({stage, ms:Math.round(ms), note:note||''});
+  const el=$('#diag');
+  if(el){
+    el.textContent = DIAG.map(d=>`${d.stage} ${d.ms}ms`).join(' · ') +
+                     (DIAG.length?'':'');
+    el.title = DIAG.map(d=>`${d.stage}: ${d.ms}ms ${d.note}`).join('\n');
+  }
+  console.info(`[load] ${stage}: ${Math.round(ms)}ms ${note||''}`);
+}
+function resetDiag(){ DIAG.length=0; const el=$('#diag'); if(el) el.textContent=''; }
+
+/** Fetch with stall detection.
+ *
+ *  A single overall timeout conflates "slow" with "stuck" and would abort a
+ *  legitimately slow 13 MB transfer. Instead the watchdog is reset on every
+ *  chunk, so it only fires when no bytes have arrived for `stallMs`. That
+ *  catches a dead socket on localhost, where TCP will happily hold a
+ *  connection open indefinitely without the browser ever erroring.
+ */
+async function fetchBytes(url, onProgress, {stallMs=15000, hardMs=300000}={}){
+  const t0=performance.now();
+  const ctl=new AbortController();
+  let last=performance.now();
+  let stallErr=null;
+  // Watchdog keyed on "time since last byte". A single overall timeout would
+  // conflate slow with stuck and abort a legitimately slow transfer; this only
+  // fires when nothing has arrived, which is what a dead localhost socket does
+  // (TCP will hold the connection open indefinitely without erroring).
+  const iv=setInterval(()=>{
+    if(performance.now()-last>stallMs){
+      stallErr=new Error(`no data received for ${Math.round(stallMs/1000)}s — the connection stalled`);
+      ctl.abort(stallErr);
+    }
+  },500);
+  const hard=setTimeout(()=>{
+    stallErr=stallErr||new Error(`exceeded the ${Math.round(hardMs/1000)}s hard limit`);
+    ctl.abort(stallErr);
+  },hardMs);
+  try{
+    const r=await fetch(url,{signal:ctl.signal});
+    if(!r.ok) throw new Error(`${url} -> HTTP ${r.status}`);
+    last=performance.now();
+    const declared=Number(r.headers.get('content-length'))||0;
+    let out;
+    if(r.body){
+      const reader=r.body.getReader();
+      const parts=[]; let got=0;
+      for(;;){
+        const {done,value}=await reader.read();
+        if(done) break;
+        last=performance.now();
+        parts.push(value); got+=value.length;
+        if(onProgress) onProgress(got,declared);
+      }
+      out=new Uint8Array(got); let p=0;
+      for(const part of parts){ out.set(part,p); p+=part.length; }
+    } else {
+      out=new Uint8Array(await r.arrayBuffer());
+    }
+    mark('fetch',performance.now()-t0,
+      `${(out.length/1048576).toFixed(2)} MB`+(declared?` of ${(declared/1048576).toFixed(2)} MB`:''));
+    return out;
+  }catch(err){
+    if(stallErr) throw stallErr;
+    throw err;
+  }finally{ clearInterval(iv); clearTimeout(hard); }
+}
+
+async function gunzip(bytes, onProgress){
+  const t0=performance.now();
+  if(typeof DecompressionStream==='undefined'){
+    throw new Error('This browser has no DecompressionStream. Re-export with --no-gzip, or use a recent Chrome, Firefox or Safari.');
+  }
+  const ds=new DecompressionStream('gzip');
+  const stream=new Blob([bytes]).stream().pipeThrough(ds);
+  const reader=stream.getReader();
+  const parts=[]; let got=bytes.length;
+  for(;;){
+    const {done,value}=await reader.read();
+    if(done) break;
+    parts.push(value); got+=value.length;
+    if(onProgress) onProgress(got,0);
+  }
+  const total=parts.reduce((a,b)=>a+b.length,0);
+  const out=new Uint8Array(total); let p=0;
+  for(const part of parts){ out.set(part,p); p+=part.length; }
+  mark('inflate',performance.now()-t0,`${(bytes.length/1048576).toFixed(2)} -> ${(total/1048576).toFixed(2)} MB`);
+  return out;
+}
+
+/** Decode the binary bundle into the same shape the viewer already uses:
+ *  block.band.<name>[period] -> Float32Array of nCells, etc.
+ *  Values are dequantised lazily, one field at a time, so opening a block
+ *  costs a header parse rather than tens of megabytes of conversion.
+ */
+function decodeBlock(buffer){
+  const t0=performance.now();
+  const dv=new DataView(buffer);
+  const magic=dv.getUint32(0,true);
+  if(magic!==0x424C3348) throw new Error('not an H3LB bundle (bad magic)');
+  const descLen=dv.getUint32(8,true);
+  const crc=dv.getUint32(12,true);
+  const desc=JSON.parse(new TextDecoder().decode(new Uint8Array(buffer,16,descLen)));
+  const MISSING=desc.missing, C=desc.nCells, P=desc.nPeriods;
+
+  // Align to a 16-byte boundary. JavaScript's % keeps the sign of the dividend,
+  // so (-off) % 16 is NEGATIVE for any off that is not already a multiple of
+  // 16 -- Python's is not. Using the bare expression here silently shifts
+  // every subsequent field backwards and reads the wrong bytes.
+  const align16 = x => ((-x) % 16 + 16) % 16;
+  let off=16+descLen+align16(16+descLen);
+  const raw={};
+  for(const f of desc.fields){
+    // Shapes are per the writer: most fields are [nPeriods, nCells], but the
+    // baked geometry fields are 1-D. Reducing rather than indexing shape[0]
+    // and shape[1] keeps a 1-D field from silently becoming NaN elements.
+    const n=f.shape.reduce((a,b)=>a*b,1);
+    if(f.dtype==='u8') raw[f.name]=new Uint8Array(buffer,off,n);
+    else                 raw[f.name]=new Uint16Array(buffer,off,n);
+    off += (f.dtype==='u8' ? n : n*2);
+    off += align16(off);
+  }
+  if(off!==buffer.byteLength)
+    throw new Error(`bundle truncated: consumed ${off} of ${buffer.byteLength} bytes`);
+
+  const cache={};
+  function perPeriod(name, map){
+    if(cache[name]) return cache[name];
+    const f=desc.fields.find(x=>x.name===name);
+    const src=raw[name];
+    const flat=new Float32Array(P*C);
+    for(let k=0;k<P*C;k++){
+      const q=src[k];
+      flat[k]=(q===MISSING)?NaN:f.min+q*f.scale;
+    }
+    const out=[];
+    for(let i=0;i<P;i++) out.push(flat.subarray(i*C,(i+1)*C));
+    return (cache[name]=out);
+  }
+  function typed(name){
+    if(cache[name]) return cache[name];
+    const src=raw[name]; const out=[];
+    for(let i=0;i<P;i++) out.push(src.subarray(i*C,(i+1)*C));
+    return (cache[name]=out);
+  }
+
+  const block={
+    periods:desc.periods, nCells:C, ids:desc.ids,
+    lon:desc.lon, lat:desc.lat, areaKm2:desc.areaKm2,
+    band:{}, index:{},
+  };
+  for(const [g,names] of [['band',desc.bands],['index',desc.indices]])
+    for(const nm of names) block[g][nm]=perPeriod(`${g}.${nm}`);
+  block.validFraction=perPeriod('validFraction');
+  block.observed=typed('observed');
+  block.nObs=typed('nObs');
+
+  // Baked hexagon outlines: interleaved lon/lat, separate scales per axis.
+  const gf=desc.fields.find(x=>x.name==='geomXY');
+  const gv=raw.geomVerts;
+  const gq=raw.geomXY;
+  const nGeo=gq.length>>1;
+  const gxy=new Float32Array(nGeo*2);
+  for(let i=0;i<nGeo;i++){
+    gxy[i*2]  = gf.lonLo + gq[i*2]  * gf.gscaleX;
+    gxy[i*2+1]= gf.latLo + gq[i*2+1]* gf.gscaleY;
+  }
+  block._geomVerts=gv;
+  block._geomXY=gxy;
+  block._dequant=crc;
+  mark('decode',performance.now()-t0,`${desc.nCells.toLocaleString()} cells x ${P} periods`);
+  return block;
+}
+async function boot(){
+  let meta;
+  try{
+    meta=await fetchJSON(`${STEM}_meta.json`);
+  }catch(err){
+    $('#loading').innerHTML=
+      `<div style="max-width:560px;text-align:center;line-height:1.75">
+        <div style="color:#e0a458;font-size:15px;margin-bottom:8px">could not load <code>${STEM}_meta.json</code></div>
+        <div>${err.message}</div>
+        <div style="margin-top:14px;color:#98a2b8;font-size:12px">
+          Build the bundle first:<br><br>
+          <code>export PYTHONPATH=$PWD/src &amp;&amp; python -m h3lab.run --years 2013:2025 --resolutions 8,9,10 --export</code><br><br>
+          Browsers also block <code>fetch</code> on <code>file://</code>, so serve the folder over HTTP:<br>
+          <code>cd h3lab &amp;&amp; python -m http.server 8000</code> then open
+          <code>http://localhost:8000/viewer/</code></div></div>`;
+    return;
+  }
+  S.meta=meta;
+  S.data={meta};                                   // blocks are merged in per resolution
+  $('#srcline').textContent=`${meta.name} · ${meta.source}`;
+  resetDiag();
+  syncPanelTop();
+  setupModes();
+  setupResolutions();
+  setupMap();
+  try{
+    await applyResolution(firstRes(), true);
+  }catch(err){
+    return;                       // failLoading has already explained it
+  }
+  setTimeout(()=>{const h=$('#hint'); if(h) h.style.opacity=0;}, 9000);
+}
+function firstRes(){
+  const ks=S.meta.resolutions.map(r=>String(r.res));
+  return ks.includes('9')?'9':ks[ks.length-1];
+}
+function setupModes(){
+  const m=S.data.meta;
+  const sel=$('#colormode'); sel.innerHTML='';
+  const add=(val,label,group)=>{
+    const o=document.createElement('option');
+    o.value=val; o.textContent=label;
+    if(group){ const g=document.createElement('optgroup'); g.label=group; g.appendChild(o); sel.appendChild(g); }
+    else sel.appendChild(o);
+  };
+  for(const k of m.indices) add(k, idxLabel(k));
+  add('delta','change vs baseline');
+  for(const b of m.bands) add('band:'+b, `reflectance · ${b}`, 'reflectance');
+  add('stability','stability','spectral');
+
+  const dsel=$('#deltaidx'); dsel.innerHTML='';
+  for(const k of m.indices){
+    const o=document.createElement('option'); o.value=k; o.textContent=idxLabel(k);
+    dsel.appendChild(o);
+  }
+  dsel.value=S.deltaIdx;
+  sel.value=S.mode;
+}
+
+function setupResolutions(){
+  const sel=$('#res'); sel.innerHTML='';
+  S.meta.resolutions.forEach(r=>{
+    const o=document.createElement('option');
+    o.value=String(r.res);
+    o.textContent=`res ${r.res} · ${r.nCells.toLocaleString()}`;
+    sel.appendChild(o);
+  });
+  sel.value=firstRes();
+  sel.onchange=()=>applyResolution(sel.value);
+}
+
+// ---------------------------------------------------------------- resolution
+async function applyResolution(k,fit){
+  S.resKey=k;
+  if(fit) resetDiag();
+  const info=S.meta.resolutions.find(r=>String(r.res)===String(k))||{};
+  const file=info.bin||`rookery_bay_h3_res${k}.bin.gz`;
+  setLoading(k, info.mb, 0);
+  if(!BLOCK_CACHE[k]){
+    try{
+      const gz=await fetchBytes(`../data/${file}`,(got,total)=>setLoading(k,info.mb,got/total));
+      setLoading(k, info.mb, 1);
+      const raw=file.endsWith('.gz') ? await gunzip(gz,(got)=>setLoading(k,info.mb,1+1)) : gz;
+      BLOCK_CACHE[k]=decodeBlock(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength));
+    }catch(err){
+      BLOCK_CACHE[k]=null;
+      failLoading(k,err);
+      throw err;
+    }
+  }
+  hideLoading();
+  S.data.resolutions=BLOCK_CACHE[k];
+  const B=BLOCK_CACHE[k];
+  S.stabCache={};
+  S.periods=B.periods.slice();
+  // Default to the change-detection view: earliest composite as baseline,
+  // most recent as "now". Starting both on the same period makes the
+  // difference map and the swings panel read as all-zero.
+  S.baselineIdx=0;
+  S.periodIdx=Math.max(S.periods.length-1,0);
+  buildGeometry();
+  buildColourCache();
+  buildBaselineOptions(); buildTicks(); buildSlider();
+  if(fit) fitToData();
+  recolor(); buildLegend(); buildExtremes();
+  if(S.selected && B.ids.includes(S.selected)) renderInspector(S.selected);
+  else $('#insp').style.display='none';
+}
+
+/** Geometry is rebuilt only when the resolution changes; the outlines
+ *  themselves are baked into the bundle, so this is a copy rather than
+ *  20,607 calls into the H3 library (which cost ~3.5 s at res 10). */
+function buildGeometry(){
+  const B=S.data.resolutions;
+  const t0=performance.now();
+  const nv=B._geomVerts, gx=B._geomXY;
+  FC={type:'FeatureCollection',features:[]};
+  let p=0;
+  for(let i=0;i<B.nCells;i++){
+    const k=nv[i];
+    const coords=new Array(k+1);
+    for(let j=0;j<k;j++){ coords[j]=[gx[p++], gx[p++]]; }
+    coords[k]=[coords[0][0], coords[0][1]];            // close the ring
+    FC.features.push({type:'Feature',properties:{id:B.ids[i],color:NODATA},
+                      geometry:{type:'Polygon',coordinates:[coords]}});
+  }
+  S.perf=Math.round(performance.now()-t0);
+  mark('geometry',performance.now()-t0,`${B.nCells.toLocaleString()} cells`);
+  $('#perf').textContent=`${B.nCells.toLocaleString()} cells · geometry ${S.perf} ms`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Spectral stability
+ *
+ * With the classification removed, stability is measured directly on the
+ * measurements rather than on derived labels:
+ *
+ *   churn  mean |dNDVI| between consecutive observed composites. Detects
+ *          greenness moving. This is the analogue of "this cell changed
+ *          cover type", expressed as a quantity that can be checked
+ *          against the index that produced it.
+ *   angle  mean spectral angle, in degrees, between the 6-band reflectance
+ *          vectors of consecutive observed composites. Scale-invariant, so
+ *          it responds to a change in the *shape* of the spectrum rather
+ *          than its brightness -- a cell can double in reflectance without
+ *          rotating its shape, and angle will not notice, while churn will.
+ *
+ * Both are per-resolution memoised and derived from arrays already resident,
+ * so no bundle rebuild is involved.
+ * ------------------------------------------------------------------ */
+const STAB_MIN_PERIODS = 4;
+// Summed reflectance across the six bands below which a spectral angle is
+// treated as meaningless rather than reported as a large number.
+const ANGLE_MIN_BRIGHTNESS = 0.10;
+
+function spectralAngleDeg(a, b){
+  // a, b are Float32Array views of nCells values for one band each,
+  // supplied as parallel arrays by the caller.
+  let dot=0, na=0, nb=0;
+  for(let i=0;i<a.length;i++){
+    const x=a[i], y=b[i];
+    if(!isFinite(x)||!isFinite(y)){ dot=NaN; break; }
+    dot+=x*y; na+=x*x; nb+=y*y;
+  }
+  if(!isFinite(dot)||na<1e-12||nb<1e-12) return NaN;
+  let cos=dot/Math.sqrt(na*nb);
+  cos=Math.max(-1,Math.min(1,cos));
+  return Math.acos(cos)*180/Math.PI;
+}
+
+function stabilitySeries(metric){
+  const key=S.resKey+'|'+metric;
+  if(S.stabCache[key]) return S.stabCache[key];
+  const B=S.data.resolutions;
+  const P=B.periods.length, C=B.nCells;
+  const out=new Float32Array(C).fill(NaN);
+
+  // Per-cell list of observed composite indices, reused by both metrics.
+  // One bucket per CELL, not per period.
+  const seenIdx=[];
+  for(let c=0;c<C;c++) seenIdx.push([]);
+  for(let c=0;c<C;c++)
+    for(let i=0;i<P;i++) if(B.observed[i][c]) seenIdx[c].push(i);
+
+  for(let c=0;c<C;c++){
+    const list=seenIdx[c];
+    if(list.length<2) continue;
+    if(metric==='churn'){
+      const a=B.index.ndvi;
+      let acc=0,n=0;
+      for(let k=1;k<list.length;k++){
+        const x=a[list[k-1]][c], y=a[list[k]][c];
+        if(isMissing(x)||isMissing(y)) continue;
+        acc+=Math.abs(y-x); n++;
+      }
+      if(n) out[c]=acc/n;
+    }else if(metric==='angle'){
+      const b=B.band;
+      let acc=0,n=0;
+      for(let k=1;k<list.length;k++){
+        const i=list[k-1], j=list[k];
+        let ok=true, sumA=0, sumB=0;
+        const va=[],vb=[];
+        for(const nm of S.data.meta.bands){
+          const x=b[nm][i][c], y=b[nm][j][c];
+          if(isMissing(x)||isMissing(y)){ ok=false; break; }
+          va.push(x); vb.push(y); sumA+=x; sumB+=y;
+        }
+        // Dark spectra are numerically useless for an angle: Collection 2
+        // scaling drives open water near zero, where the denominator in
+        // cos(angle) collapses and tiny differences swing the angle wildly.
+        // Require a real reflectance signal before reporting one.
+        if(!ok || sumA<ANGLE_MIN_BRIGHTNESS || sumB<ANGLE_MIN_BRIGHTNESS) continue;
+        const ang=spectralAngleDeg(Float64Array.from(va), Float64Array.from(vb));
+        if(isFinite(ang)){ acc+=ang; n++; }
+      }
+      if(n) out[c]=acc/n;
+    }
+  }
+
+  let mx=0; for(let i=0;i<C;i++) if(isFinite(out[i])&&out[i]>mx) mx=out[i];
+  S.stabCache[key+'#max']=mx||1;
+  return (S.stabCache[key]=out);
+}
+
+/** Spectral summary of one cell, for the biography. */
+function stabilitySummary(c){
+  const B=S.data.resolutions;
+  const idx=[];
+  for(let i=0;i<B.periods.length;i++) if(B.observed[i][c]) idx.push(i);
+  if(idx.length<2) return null;
+  return {
+    seen: idx.length,
+    churn: stabilitySeries('churn')[c],
+    angle: stabilitySeries('angle')[c],
+    thin: idx.length < STAB_MIN_PERIODS,
+  };
+}
+
+function buildColourCache(){
+  const t0=performance.now();
+  const B=S.data.resolutions;
+  const m=S.data.meta;
+  const n=B.nCells, p=S.periods.length;
+  FEATCOL=[];
+
+  for(let i=0;i<p;i++){
+    const out=new Array(n);
+    if(S.mode==='stability'){
+      const ser=stabilitySeries(S.stabMetric);
+      for(let c=0;c<n;c++){
+        if(!B.observed[i][c]){ out[c]=NODATA; continue; }
+        const v=ser[c];
+        // A cell with too few observations is left blank rather than scored.
+        if(!isFinite(v)){ out[c]=NODATA; continue; }
+        out[c]=rampColor(v/(S.stabCache[`${S.resKey}|${S.stabMetric}#max`]||1), RAMPS.stab);
+      }
+    }else if(S.mode==='delta'){
+      const key=S.deltaIdx, arr=B.index[key];
+      for(let c=0;c<n;c++){
+        const a=arr[S.baselineIdx][c], b=arr[i][c];
+        if(!B.observed[i][c]||!B.observed[S.baselineIdx][c]||isMissing(a)||isMissing(b)){
+          out[c]=NODATA; continue;
+        }
+        out[c]=rampColor((b-a)/DELTA_SPAN+0.5, RAMPS.diff);
+      }
+    }else if(S.mode.startsWith('band:')){
+      const band=S.mode.slice(5);
+      const arr=B.band[band][i];
+      for(let c=0;c<n;c++){
+        const v=arr[c];
+        if(!B.observed[i][c]||isMissing(v)){ out[c]=NODATA; continue; }
+        out[c]=rampColor(clamp(v/BAND_SPAN[band],0,1), RAMPS.spec);
+      }
+    }else{
+      const key=S.mode;                       // an index name
+      const arr=B.index[key][i];
+      const lo=idxRange(key)[0], hi=idxRange(key)[1];
+      for(let c=0;c<n;c++){
+        const v=arr[c];
+        if(!B.observed[i][c]||isMissing(v)){ out[c]=NODATA; continue; }
+        out[c]=rampColor((v-lo)/(hi-lo), idxRamp(key));
+      }
+    }
+    FEATCOL.push(out);
+  }
+  mark('colour',performance.now()-t0,`${p} periods`);
+}
+
+function recolor(){
+  if(!FC||!FEATCOL||!FEATCOL.length){ return; }
+  const t0=performance.now();
+  const col=FEATCOL[Math.min(S.periodIdx,FEATCOL.length-1)];
+  if(!col) return;
+  for(let i=0;i<FC.features.length;i++) FC.features[i].properties.color=col[i];
+  if(S.map && S.map.getSource('hex')) S.map.getSource('hex').setData(FC);
+  if(S.map && S.mapReady) S.mapReady();      // ensure layers exist even if 'load' never fired
+  $('#perlabel').textContent=periodLabel(S.periodIdx);
+  $('#perf').textContent=`${S.data.resolutions.nCells.toLocaleString()} cells · repaint ${Math.round(performance.now()-t0)} ms`;
+  document.querySelectorAll('.tick').forEach(t=>t.classList.toggle('sel',Number(t.dataset.k)===activeIndex()));
+}
+function periodLabel(i){
+  const p=S.periods[i]; return p?`${p.year} · ${p.season}`:'—';
+}
+
+// ---------------------------------------------------------------- map
+function setupMap(){
+  const [w,s,e,n]=S.data.meta.bbox;
+  S.map=new maplibregl.Map({
+    container:'map',
+    style:{version:8,sources:{sat:{type:'raster',tiles:[
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize:256}},layers:[
+      {id:'bg',type:'background',paint:{'background-color':'#0b0d12'}},
+      {id:'basemap',type:'raster',source:'sat'}]},
+    center:[(w+e)/2,(s+n)/2], zoom:12.3, attributionControl:false, maxZoom:19
+  });
+  S.map.tilesLoaded ? null : null;
+  S.map.addControl(new maplibregl.NavigationControl({showCompass:false}),'bottom-right');
+  S.map.addControl(new maplibregl.AttributionControl({
+    customAttribution:'Landsat C2 L2 via Microsoft Planetary Computer · Hexagons: Uber H3'}));
+
+  // The satellite basemap is the only outbound dependency. If Esri tiles are
+  // slow, firewalled or proxied, MapLibre can sit waiting for a style 'load'
+  // that never arrives. Fail open: drop to a plain background after a few
+  // tile errors and say so, rather than leaving an empty map that reads as
+  // "still loading".
+  let tileFails=0;
+  S.map.on('error',ev=>{
+    const m=ev && ev.error && String(ev.error.message||'');
+    if(!m || !/tile|source|sprite|glyph|fetch|network/i.test(m)) return;
+    tileFails++;
+    if(tileFails===6) dropBasemap('basemap tiles unreachable');
+  });
+  // The hexagon layers must not be gated on the basemap finishing. If tiles
+  // are slow or blocked the style 'load' event can be delayed indefinitely and
+  // the map would sit empty while the data is already sitting in memory.
+  let layersAdded=false;
+  function addHexLayers(){
+    if(layersAdded || !S.map) return;
+    if(!S.map.isStyleLoaded && !S.map.getStyle()) return;
+    if(!S.map.getLayer('basemap')) { try{ addBasemap(); }catch(e){} }
+    layersAdded=true;
+    S.map.addSource('hex',{type:'geojson',data:FC,tolerance:0.5});
+    S.map.addLayer({id:'hex-line',type:'line',source:'hex',paint:{
+      'line-color':'rgba(0,0,0,0.30)','line-width':0.4}});
+    S.map.addLayer({id:'hex-fill',type:'fill',source:'hex',paint:{
+      'fill-color':['coalesce',['get','color'],NODATA],
+      'fill-opacity':S.opacity/100}});
+    S.map.addLayer({id:'hex-sel',type:'line',source:'hex',filter:['==',['get','id'],'__none__'],
+      paint:{'line-color':'#ffffff','line-width':2.4,'line-opacity':1}});
+    S.map.on('click','hex-fill',ev=>{
+      const f=ev.features&&ev.features[0];
+      if(f) selectCell(String(f.properties.id));
+    });
+    S.map.on('mousemove','hex-fill',()=>{S.map.getCanvas().style.cursor='pointer';});
+    S.map.on('mouseout','hex-fill',()=>{S.map.getCanvas().style.cursor='';});
+    mark('hex-layers',performance.now()-t0Map,'added');
+  }
+  const t0Map=performance.now();
+  S.map.on('load',addHexLayers);
+  S.map.on('style.load',addHexLayers);
+  // Belt and braces: if neither fires, add them anyway once data is present.
+  S.mapReady=addHexLayers;
+}
+function fitToData(){
+  const B=S.data.resolutions;
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(let i=0;i<B.lon.length;i++){
+    x0=Math.min(x0,B.lon[i]);x1=Math.max(x1,B.lon[i]);
+    y0=Math.min(y0,B.lat[i]);y1=Math.max(y1,B.lat[i]);
+  }
+  S.map.fitBounds([[x0-0.012,y0-0.010],[x1+0.012,y1+0.010]],{padding:{top:70,bottom:150,left:70,right:270},duration:600});
+}
+
+// ---------------------------------------------------------------- timeline
+/** Periods currently on the timeline, honouring the season filter.
+ *  The season control must restrict the scrubber, not merely relocate the
+ *  playhead to the first matching period. */
+function shownPeriods(){
+  if(S.season==='all') return S.periods;
+  return S.periods.filter(p=>p.season===S.season);
+}
+function activeIndex(){
+  const sh=shownPeriods();
+  const i=sh.findIndex(p=>p.year===S.periods[S.periodIdx].year && p.season===S.periods[S.periodIdx].season);
+  return i<0?0:i;
+}
+function setPos(pos){
+  const sh=shownPeriods();
+  if(!sh.length) return;
+  pos=clamp(pos,0,sh.length-1);
+  S.periodIdx=S.periods.indexOf(sh[pos]);
+  $('#slider').value=pos;
+  recolor();
+  if(S.selected) renderInspector(S.selected);
+}
+
+function buildTicks(){
+  const el=$('#ticks'); el.innerHTML='';
+  const sh=shownPeriods();
+  if(!sh.length) return;
+  const t0=Date.UTC(sh[0].year,0,1), t1=Date.UTC(sh[sh.length-1].year,11,1);
+  // Label at most ~13 ticks; with 26 composites every label would collide.
+  // The mark stays on every tick so the position is still readable.
+  const stride=Math.max(1,Math.ceil(sh.length/13));
+  sh.forEach((p,k)=>{
+    const d=Date.UTC(p.year,p.season==='wet'?6:11,15);
+    const d1=document.createElement('div');
+    d1.className='tick'; d1.dataset.k=k;
+    d1.style.left=`${clamp((d-t0)/Math.max(t1-t0,1),0,1)*100}%`;
+    const show=(k%stride===0)||(k===sh.length-1);
+    d1.innerHTML=`<i></i>${show?`${String(p.year).slice(2)}<br>${p.season[0]}`:''}`;
+    d1.title=`${periodLabel(p?S.periods.indexOf(p):0)}`;
+    d1.onclick=()=>setPos(k);
+    el.appendChild(d1);
+  });
+  // Event markers, staggered vertically so near-coincident labels stay legible.
+  let n=0;
+  (S.data.meta.events||[]).forEach(ev=>{
+    const d=Date.parse(ev.date); if(!isFinite(d)) return;
+    const f=(d-t0)/Math.max(t1-t0,1); if(f<0||f>1) return;
+    const e=document.createElement('div');
+    e.className='ev'+(n%2?' alt':'');
+    e.style.left=`${f*100}%`; e.textContent=ev.label;
+    e.title=`${ev.full||ev.label} — ${ev.date}`;
+    el.appendChild(e);
+    n++;
+  });
+}
+function buildSlider(){
+  const sh=shownPeriods();
+  const sl=$('#slider'); sl.max=Math.max(sh.length-1,0); sl.value=activeIndex();
+}
+function setPeriod(i){
+  // Called from the ribbon and arrow keys; `i` is an index into the full list.
+  S.periodIdx=clamp(i,0,S.periods.length-1);
+  $('#slider').value=activeIndex();
+  recolor();
+  if(S.selected) renderInspector(S.selected);
+}
+function buildBaselineOptions(){
+  const sel=$('#baseline'); sel.innerHTML='';
+  S.periods.forEach((p,i)=>{
+    const o=document.createElement('option'); o.value=i; o.textContent=periodLabel(i); sel.appendChild(o);
+  });
+  sel.onchange=()=>{S.baselineIdx=Number(sel.value);refreshColours();};
+}
+function refreshColours(){
+  buildColourCache(); recolor(); buildLegend(); buildExtremes();
+  if(S.selected) renderInspector(S.selected);
+}
+
+// ---------------------------------------------------------------- legend
+function buildLegend(){
+  const el=$('#legend'), m=S.data.meta;
+  const ramp=(r,labels,note)=>
+    `<h3>${note.title}</h3>`+
+    `<div class="ramp" style="background:linear-gradient(90deg,${r.map(hex).join(',')})"></div>`+
+    `<div class="rlabels"><span>${labels[0]}</span><span>${labels[1]}</span></div>`+
+    (note.sub?`<div class="sub" style="margin:7px 0 0;font-size:10.5px">${note.sub}</div>`:'');
+  let h;
+
+  if(S.mode==='stability'){
+    const isAngle = S.stabMetric==='angle';
+    h=ramp(RAMPS.stab,['stable','unstable'],
+      {title:isAngle?'spectral stability':'NDVI stability',
+       sub: isAngle
+         ? `Mean spectral angle between consecutive observed composites: the shape of the 6-band spectrum, independent of brightness. Needs &ge;${STAB_MIN_PERIODS} observations, and only where the spectrum is bright enough (summed reflectance &ge;${ANGLE_MIN_BRIGHTNESS}) for an angle to mean anything. Dark water cells are left blank.`
+         : `Mean |&Delta;NDVI| between consecutive observed composites. Needs &ge;${STAB_MIN_PERIODS} observations; thinner cells are left blank.`});
+  }else if(S.mode==='delta'){
+    h=ramp(RAMPS.diff,['&minus;'+DELTA_SPAN,0,'+'+DELTA_SPAN],
+      {title:`&Delta; ${idxLabel(S.deltaIdx)} vs ${periodLabel(S.baselineIdx)}`});
+  }else if(S.mode.startsWith('band:')){
+    const band=S.mode.slice(5);
+    h=ramp(RAMPS.spec,['0',BAND_SPAN[band].toFixed(2)],
+      {title:`reflectance &middot; ${bandLabel(band)}`,
+       sub:'Surface reflectance, Collection 2 Level-2 scaling. Capped at '+BAND_SPAN[band]+' for display.'});
+  }else{
+    const [lo,hi]=idxRange(S.mode);
+    h=ramp(idxRamp(S.mode),[lo.toFixed(1),hi.toFixed(1)],
+      {title:idxLabel(S.mode), sub:spec(S.mode).desc||''});
+  }
+  h+=`<div class="lrow" style="margin-top:8px"><span class="sw" style="background:${NODATA}"></span>no observation</div>`;
+  el.innerHTML=h;
+}
+
+// ---------------------------------------------------------------- ranked cells
+function buildExtremes(){
+  const B=S.data.resolutions, el=$('#extremes');
+  const sort=S.extremeSort||'delta';
+
+  if(sort==='stable'||sort==='churn'){
+    const metric = sort==='stable' ? 'angle' : 'churn';
+    const ser=stabilitySeries(metric);
+    const isAngle = metric==='angle';
+    const rank = sort==='stable' ? (x,y)=>x-y : (x,y)=>y-x;
+    const cells=[];
+    for(let c=0;c<B.nCells;c++) if(isFinite(ser[c])) cells.push({c,v:ser[c]});
+    cells.sort((p,q)=>rank(p.v,q.v));
+    const top=cells.slice(0,10);
+    el.innerHTML=`<h3>${sort==='stable'?'settlest spectra':'most unsettled spectra'}</h3>`+
+      (top.length? top.map((o,n)=>
+        `<div class="ex" data-c="${o.c}"><span class="rk">${n+1}</span>`+
+        `<span class="nm" title="${B.ids[o.c]}">${B.ids[o.c].slice(-9)}</span>`+
+        `<span class="vl">${o.v.toFixed(isAngle?2:3)}${isAngle?'&deg;':''}</span></div>`).join('')
+        : '<div style="color:var(--muted)">not enough observed composites</div>');
+    el.querySelectorAll('.ex').forEach(d=>d.onclick=()=>selectCell(B.ids[Number(d.dataset.c)]));
+    return;
+  }
+
+  const i=S.periodIdx, k=S.deltaIdx;
+  const a=B.index[k][S.baselineIdx], b=B.index[k][i];
+  const items=[];
+  for(let c=0;c<B.nCells;c++){
+    if(!B.observed[i][c]||!B.observed[S.baselineIdx][c]) continue;
+    if(isMissing(a[c])||isMissing(b[c])) continue;
+    items.push({c,d:b[c]-a[c]});
+  }
+  items.sort((p,q)=>Math.abs(q.d)-Math.abs(p.d));
+  const top=items.slice(0,10);
+  el.innerHTML=`<h3>largest &Delta; ${idxLabel(k)}<br><span style="font-weight:400;text-transform:none;letter-spacing:0">vs ${periodLabel(S.baselineIdx)}</span></h3>`+
+    (top.length? top.map((o,n)=>
+      `<div class="ex" data-c="${o.c}"><span class="rk">${n+1}</span>`+
+      `<span class="nm" title="${B.ids[o.c]}">${B.ids[o.c].slice(-9)}</span>`+
+      `<span class="vl" style="color:${o.d<0?'#e07a6a':'#7fd4c1'}">${o.d>0?'+':''}${o.d.toFixed(3)}</span></div>`
+    ).join('') : '<div style="color:var(--muted)">no comparable cells</div>');
+  el.querySelectorAll('.ex').forEach(d=>d.onclick=()=>selectCell(B.ids[Number(d.dataset.c)]));
+}
+
+// ---------------------------------------------------------------- inspector
+function selectCell(id){
+  S.selected=id;
+  if(S.map && S.map.getLayer('hex-sel'))
+    S.map.setFilter('hex-sel',['==',['get','id'],id]);
+  renderInspector(id);
+}
+/** Least-squares slope of y against position in x, ignoring gaps. */
+function trend(x){
+  const pts=[];
+  for(let i=0;i<x.length;i++) if(isFinite(x[i])) pts.push([i,x[i]]);
+  if(pts.length<3) return null;
+  const n=pts.length;
+  const mx=pts.reduce((a,p)=>a+p[0],0)/n;
+  const my=pts.reduce((a,p)=>a+p[1],0)/n;
+  let sxy=0, sxx=0;
+  for(const [px,py] of pts){ sxy+=(px-mx)*(py-my); sxx+=(px-mx)**2; }
+  return sxx>0 ? sxy/sxx : null;
+}
+
+/** Write the biography of one cell, in spectra and indices only. */
+function renderInspector(id){
+  const B=S.data.resolutions, m=S.data.meta, el=$('#insp');
+  const c=B.ids.indexOf(id);
+  if(c<0){ el.style.display='none'; return; }
+  el.style.display='block';
+
+  const i0=S.periodIdx;
+  const obs=[];                                   // observed composite indices
+  for(let i=0;i<B.periods.length;i++) if(B.observed[i][c]) obs.push(i);
+  const ndviAll=B.index.ndvi.map(a=>a[c]);
+  const stab=stabilitySummary(c);
+
+  // ---- largest single move in NDVI between consecutive observed composites
+  let mv={d:0};
+  for(let k=1;k<obs.length;k++){
+    const x=ndviAll[obs[k-1]], y=ndviAll[obs[k]];
+    if(isMissing(x)||isMissing(y)) continue;
+    const d=Math.abs(y-x);
+    if(d>mv.d) mv={d, i:obs[k-1], j:obs[k], x, y};
+  }
+  // did a known event fall between those two composites?
+  let evHit=null;
+  if(mv.d>0){
+    for(const ev of (m.events||[])){
+      const d=Date.parse(ev.date); if(!isFinite(d)) continue;
+      const t1=Date.UTC(B.periods[mv.i].year, B.periods[mv.i].season==='wet'?6:11, 15);
+      const t2=Date.UTC(B.periods[mv.j].year, B.periods[mv.j].season==='wet'?6:11, 15);
+      if(d>t1 && d<t2) evHit=ev;
+    }
+  }
+
+  const good=ndviAll.filter(v=>!isMissing(v));
+  const hi=good.length?Math.max(...good):null, lo=good.length?Math.min(...good):null;
+  const slope=trend(ndviAll);
+
+  let narrative;
+  if(!obs.length){
+    narrative=`No observed composites for this cell at this resolution.`;
+  }else if(mv.d<0.02){
+    narrative=`A <b>spectrally quiet</b> cell: NDVI never moves more than 0.02 between consecutive
+      observed composites. Mean spectral angle ${fmt(stab?stab.angle:null,2)}&deg;. This is the kind of
+      cell worth reading unsettled ones <i>against</i>.`;
+  }else{
+    const arrow = mv.y>mv.x ? '&rarr;' : '&larr;';
+    narrative=`NDVI moved <b>${fmt(mv.x,3)} ${arrow} ${fmt(mv.y,3)}</b> between
+      <b>${periodLabel(mv.i)}</b> and <b>${periodLabel(mv.j)}</b>, the largest single step in the record.
+      ${evHit?`<b>${evHit.full||evHit.label}</b> falls between those two composites.`:
+              'No annotated event falls between those two composites.'}
+      The cell now reads ${fmt(ndviAll[i0],3)}, against a record range of ${fmt(lo,3)} to ${fmt(hi,3)}.`;
+  }
+
+  // ---- NDVI ribbon: one cell per composite, coloured on the NDVI ramp ----
+  const ribbon=obs.length? B.periods.map((p,i)=>{
+    const v=ndviAll[i];
+    const ok=B.observed[i][c] && !isMissing(v);
+    return `<div class="rseg ${i===i0?'sel':''} ${ok?'':'dim'}"
+      style="background:${ok?rampColor((v-idxRange('ndvi')[0])/(idxRange('ndvi')[1]-idxRange('ndvi')[0]),idxRamp('ndvi')):'#2a2a2a'}"
+      data-i="${i}" title="${periodLabel(i)} &middot; NDVI ${ok?fmt(v,3):'no observation'}"></div>`;
+  }).join('') : '';
+  const riblabels = obs.length>12
+    ? `<div class="riblabels"><div>${B.periods[0].year}</div><div style="flex:1"></div><div>${B.periods[B.periods.length-1].year}</div></div>`
+    : `<div class="riblabels">${B.periods.map(p=>`<div>${p.season[0]}</div>`).join('')}</div>`;
+
+  // One heatmap for both groups: twelve series share a single time axis, so
+  // a composite that misbehaved across many series reads as one vertical run.
+  // Colours on the left identify the series; colours in the cells are reserved
+  // for the anomaly itself.
+  const heat=heatmapChart([
+    {title:'reflectance', rows:m.bands.map(b=>({
+        label:bandLabel(b), color:bandColor(b),
+        values:B.periods.map((p,i)=>B.band[b][i][c])}))},
+    {title:'indices', rows:m.indices.map(k=>({
+        label:idxLabel(k), color:INDEX_COLORS[k]||'#9aa4bb',
+        values:B.periods.map((p,i)=>B.index[k][i][c])}))},
+  ]);
+
+  // Spectral profile: the absolute reflectance numbers the heatmap cannot
+  // carry, expressed as a shape rather than a column of six means.
+  const profile=spectrumProfile(m.bands.map(b=>({
+    key:b, nm:((S.data.meta.band_info||{})[b]||{}).nm,
+    values:B.periods.map((p,i)=>B.band[b][i][c])})));
+
+  el.innerHTML=`
+    <button class="close" title="Close (esc)">&times;</button>
+    <h2>H3 cell biography</h2>
+    <div class="sub">res <code>${S.resKey}</code> · <code>${id}</code><br>
+      ${(B.areaKm2[c]*1e6).toLocaleString(undefined,{maximumFractionDigits:0})} m² ·
+      ${B.lat[c].toFixed(5)}, ${B.lon[c].toFixed(5)} · ${obs.length} of ${B.periods.length}
+      composites observed</div>
+    <div class="narr">${narrative}</div>
+
+    <div class="sect">NDVI through the record &mdash; click to jump</div>
+    <div class="ribbon">${ribbon}</div>
+    ${riblabels}
+
+    <div class="sect">current composite (${periodLabel(i0)})</div>
+    <div class="grid2">
+      ${m.indices.map(k=>`<div class="kv"><span>${idxLabel(k)}</span><b>${fmt(B.index[k][i0][c],3)}</b></div>`).join('')}
+      <div class="kv"><span>observations</span><b>${B.nObs[i0][c]}</b></div>
+      <div class="kv"><span>valid fraction</span><b>${fmt(B.validFraction[i0][c],2)}</b></div>
+    </div>
+
+    <div class="sect">record summary</div>
+    <div class="grid2">
+      <div class="kv"><span>NDVI range</span><b>${fmt(lo,3)} – ${fmt(hi,3)}</b></div>
+      <div class="kv"><span>NDVI trend</span><b>${slope==null?'&mdash;':(slope>=0?'+':'')+(slope*100).toFixed(2)+' /yr'}</b></div>
+      <div class="kv"><span>mean |&Delta;NDVI|</span><b>${stab?fmt(stab.churn,3):'&mdash;'}</b></div>
+      <div class="kv"><span>mean spectral angle</span><b>${stab?fmt(stab.angle,2)+'°':'&mdash;'}</b></div>
+      <div class="kv"><span>largest step</span><b>${mv.d?fmt(mv.d,3):'&mdash;'}</b></div>
+      <div class="kv"><span>spectral verdict</span><b>${stabVerdict(stab)}</b></div>
+    </div>
+    ${stab && stab.thin ? `<div class="sub" style="margin:2px 0 0;color:var(--warn)">Only
+      ${stab.seen} observed composite${stab.seen>1?'s':''}; the stability layer needs
+      &ge;${STAB_MIN_PERIODS}, so this cell is blank there.</div>` : ''}
+
+    <div class="sect">spectra and indices through the record</div>
+    ${heat}
+    <div class="sub" style="margin:6px 0 0;font-size:10.5px">Colour is each
+      series&rsquo; distance from its own record mean, in standard deviations:
+      red above, blue below, and the greyest cells are closest to the mean.
+      Every row has its own scale, so rows stay comparable without sharing an
+      axis; near-black cells were never observed. A vertical run means one
+      composite sat oddly across many series at once.</div>
+    <div class="sect">spectral profile &mdash; record mean, whisker is observed range</div>
+    ${profile}
+    <div class="sub" style="margin:5px 0 0;font-size:10.5px">Band-centre means; the
+      line only joins band centres, it is not a measured continuum. The axis starts
+      at zero so a dark cell cannot look bright.</div>
+
+    <div class="sect">map</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap">
+      <button id="fly">fly to this cell</button>
+    </div>
+    <div class="sub" style="margin:10px 0 2px">${m.source}<br>${m.note}</div>`;
+
+  el.querySelector('.close').onclick=closeInsp;
+  el.querySelectorAll('.rseg[data-i]').forEach(s=>s.onclick=()=>setPeriod(Number(s.dataset.i)));
+  // Selecting a cell already eases the map to it, so this only adds the zoom;
+  // a second competing animation here made navigation feel unresponsive.
+  el.querySelector('#fly').onclick=()=>S.map.flyTo({center:[B.lon[c],B.lat[c]],zoom:15.5,duration:900});
+  if(S.map) S.map.easeTo({center:[B.lon[c],B.lat[c]],duration:450});
+}
+
+function stabVerdict(stab){
+  if(!stab) return '&mdash;';
+  if(stab.thin) return 'too few';
+  if(stab.churn!=null && stab.churn>0.12) return 'unsettled';
+  if(stab.angle!=null && stab.angle>4) return 'shifting';
+  if(stab.churn!=null && stab.churn<0.02) return 'quiet';
+  return 'steady';
+}
+
+function closeInsp(){ S.selected=null; $('#insp').style.display='none';
+  if(S.map&&S.map.getLayer('hex-sel')) S.map.setFilter('hex-sel',['==',['get','id'],'__none__']); }
+
+// ---------------------------------------------------------------- charts
+/* ---- anomaly heatmap -------------------------------------------------
+ * Rows are series, columns are composites. Colour is each series' distance
+ * from its own record mean, in standard deviations, so a row's position in
+ * the record is readable without a y-axis and twelve series cost twelve
+ * short rows.
+ *
+ * This is the form that actually scales. Overlaid lines hide each other and
+ * need one shared y-scale that none of the series agree on; a horizon plot
+ * fixes the scale problem but folds magnitude into a shape that has to be
+ * decoded. A heatmap gives every series an independent scale by construction
+ * and never occludes anything. The cost is continuity -- it shows *when* a
+ * composite was odd, not the path between composites -- which is why the
+ * current composite is still given as exact numbers above.
+ *
+ * The ramp is quantised into nine steps deliberately. A smooth gradient looks
+ * better in isolation but at 11 px wide adjacent cells are indistinguishable;
+ * discrete bands let you count "how many sigma" at a glance, which is the
+ * entire job.
+ */
+const HEAT_STEPS=[
+  '#3f8fd4',  // <= -2 sd: bright, not dark. On a dark panel the extremes
+  '#3579b8',  // have to be *brighter* than the quiet band, otherwise the low
+  '#2c6398',  // end reads as "no observation" instead of "low".
+  '#2a4a6c',
+  '#343a49',  // quiet. Still visible as a cell -- a neutral that sits too
+              // close to the unobserved fill reads as a hole in the row.
+  '#6b3f3c',
+  '#a14f48',
+  '#cf6455',
+  '#f2836a',  // >= +2 sd
+];
+const HEAT_CUTS=[-2.2,-1.6,-1.0,-0.5,0.5,1.0,1.6,2.2];
+const HEAT_MISSING='#0b0d12';
+
+function heatBin(z){
+  for(let i=0;i<HEAT_CUTS.length;i++) if(z<HEAT_CUTS[i]) return i;
+  return HEAT_STEPS.length-1;
+}
+
+function heatmapChart(groups){
+  const W=400, PL=106, PR=8, PT=13, PB=21;
+  const n=S.periods.length;
+  if(!n) return '<div style="color:var(--muted);padding:10px 0">no composites</div>';
+  const CW=(W-PL-PR)/n;
+  const RH=13, RGAP=2, HEAD=14, GSEP=6;
+
+  // ---- lay out rows and compute each row's own centre and spread ----
+  const items=[];
+  let y=PT;
+  groups.forEach(grp=>{
+    items.push({type:'head',label:grp.title,y});
+    y+=HEAD;
+    grp.rows.forEach(r=>{
+      const fin=r.values.filter(v=>!isMissing(v)&&isFinite(v));
+      const mean=fin.length?fin.reduce((a,b)=>a+b,0)/fin.length:null;
+      const sd=fin.length>1
+        ? Math.sqrt(fin.reduce((a,b)=>a+(b-mean)*(b-mean),0)/fin.length)
+        : null;
+      items.push({type:'row',row:r,mean,sd,y});
+      y+=RH+RGAP;
+    });
+    y+=GSEP;
+  });
+  const plotBottom=y-GSEP;
+  const H=plotBottom+PB;
+
+  let g='';
+
+  // ---- events: a tick above the grid, never a tint over the cells.
+  // A translucent overlay would corrupt the very channel that carries the
+  // data, which is the one thing a heatmap cannot afford. ----
+  (S.data.meta.events||[]).forEach(ev=>{
+    const d=Date.parse(ev.date); if(!isFinite(d)) return;
+    S.periods.forEach((p,i)=>{
+      const pd=Date.UTC(p.year,p.season==='wet'?6:11,15);
+      if(Math.abs(pd-d)<75*86400000)
+        g+=`<rect x="${(PL+i*CW+0.5).toFixed(1)}" y="${PT-6}"
+              width="${Math.max(CW-1,1).toFixed(1)}" height="3"
+              fill="#e0a458" opacity="0.9"><title>${ev.full||ev.label||'event'}</title></rect>`;
+    });
+  });
+
+  items.forEach(it=>{
+    if(it.type==='head'){
+      g+=`<text x="4" y="${(it.y+10).toFixed(1)}" fill="#7f8899" font-size="8.5"
+             letter-spacing="0.7">${it.label.toUpperCase()}</text>`;
+      return;
+    }
+    const r=it.row;
+
+    // identity swatch: the band's wavelength colour or the index's palette
+    // colour survives on the left, because the cell colour is now devoted to
+    // the anomaly and can no longer encode which series this is.
+    g+=`<rect x="4" y="${(it.y+4).toFixed(1)}" width="6" height="6" rx="1.5"
+          fill="${r.color}"/>`;
+    g+=`<text x="15" y="${(it.y+9.5).toFixed(1)}" fill="#c4ccdd" font-size="9.5">${r.label}</text>`;
+
+    for(let i=0;i<n;i++){
+      const v=r.values[i];
+      let fill, z=null;
+      if(isMissing(v)||!isFinite(v)){
+        fill=HEAT_MISSING;
+      }else if(it.sd==null||it.sd<1e-9){
+        fill=HEAT_STEPS[4]; z=0;            // flat row: nothing to rank
+      }else{
+        z=(v-it.mean)/it.sd;
+        fill=HEAT_STEPS[heatBin(z)];
+      }
+      const tip = isMissing(v)
+        ? `${periodLabel(i)} · ${r.label} · no observation`
+        : `${periodLabel(i)} · ${r.label} ${fmt(v,4)} · `+
+          (z==null?'':(z>=0?'+':'')+z.toFixed(1)+'\u03c3 vs record mean');
+      g+=`<rect x="${(PL+i*CW+0.5).toFixed(2)}" y="${(it.y+0.5).toFixed(1)}"
+            width="${Math.max(CW-1,1).toFixed(2)}" height="${RH-1}"
+            fill="${fill}" rx="1"><title>${tip}</title></rect>`;
+    }
+  });
+
+  // ---- playhead ----
+  if(S.periodIdx>=0 && S.periodIdx<n)
+    g+=`<rect x="${(PL+S.periodIdx*CW+0.5).toFixed(1)}" y="${PT-2}"
+          width="${Math.max(CW-1,1).toFixed(1)}" height="${(plotBottom-PT+2).toFixed(1)}"
+          fill="none" stroke="#fff" stroke-width="1" opacity="0.85" rx="1"/>`;
+
+  // ---- shared time axis ----
+  const stride=Math.max(1,Math.ceil(n/8));
+  let last=-99;
+  S.periods.forEach((p,i)=>{
+    const mid=PL+i*CW+CW/2;
+    const forced=i===n-1 && (i-last)>=Math.ceil(stride/2);
+    if(i%stride && !forced) return;
+    last=i;
+    g+=`<line x1="${mid.toFixed(1)}" y1="${plotBottom}" x2="${mid.toFixed(1)}" y2="${plotBottom+4}"
+          stroke="#3a4152"/>`;
+    g+=`<text x="${mid.toFixed(1)}" y="${H-6}" fill="#98a2b8" font-size="8.5"
+          text-anchor="middle">${String(p.year).slice(2)}</text>`;
+  });
+
+  const leg=`<div class="heatleg">
+    <span>&minus;2&sigma;</span>
+    <div class="hlbar">${HEAT_STEPS.map(c=>`<i style="background:${c}"></i>`).join('')}</div>
+    <span>+2&sigma;</span>
+    <span class="hlsep"></span>
+    <i class="hlmiss"></i><span>unobserved</span>
+  </div>`;
+
+  return `<svg class="chart heat" viewBox="0 0 ${W} ${H}">${g}</svg>`+leg;
+}
+
+/* ---- spectrum profile -------------------------------------------------
+ * Mean reflectance per band against wavelength. This is the one view in the
+ * biography that shows the cell's spectral *shape*: the heatmap above shows
+ * each band through time, but never how the bands relate to each other.
+ *
+ * The x axis is logarithmic in wavelength. Blue, green and red sit inside
+ * 482-655 nm while the SWIR bands run to 2200; on a linear axis the three
+ * visible bands collapse into the first tenth of the plot.
+ *
+ * The connecting line is an interpolant between band centres, not a measured
+ * continuum -- Landsat samples six slices, it does not sweep a spectrometer.
+ * That is why the points are drawn heavier than the line, and why the line is
+ * the only thing here that is not a measurement.
+ *
+ * The y axis starts at zero and is not auto-fitted per cell. Fitting to the
+ * local range would make a dark-water cell look as bright as a vegetated one,
+ * which is exactly the comparison this plot exists to support.
+ */
+function niceCeil(v){
+  if(!(v>0)) return 1;
+  // Finer steps than the usual 1/2/5 ladder: a 0.32 maximum rounded to 0.5
+  // would waste a third of the plot and squash the range whiskers to nothing.
+  const e=Math.floor(Math.log10(v)), f=v/Math.pow(10,e);
+  const steps=[1,1.2,1.5,2,2.5,3,4,5,6,8,10];
+  const s=steps.find(x=>f<=x)||10;
+  return s*Math.pow(10,e);
+}
+
+function spectrumProfile(bands){
+  const W=400, PL=40, PR=13, PT=17, PB=34, H=138;
+  const rows=bands.map(b=>{
+    const vals=b.values.filter(v=>!isMissing(v)&&isFinite(v));
+    if(!vals.length) return null;
+    return {key:b.key, nm:b.nm,
+            mean:vals.reduce((a,x)=>a+x,0)/vals.length,
+            min:Math.min(...vals), max:Math.max(...vals), n:vals.length};
+  }).filter(Boolean);
+  if(rows.length<2)
+    return '<div class="sub" style="margin:6px 0 0">not enough observed bands to draw a profile</div>';
+
+  const useLog=rows.every(r=>r.nm>0);
+  const nms=rows.map(r=>r.nm);
+  const l0=Math.log(Math.min(...nms)), l1=Math.log(Math.max(...nms));
+  const X = useLog
+    ? nm=>PL+(W-PL-PR)*(Math.log(nm)-l0)/Math.max(l1-l0,1e-9)
+    : i=>PL+(W-PL-PR)*(rows.length<2?0.5:i/(rows.length-1));
+  const px=rows.map((r,i)=>useLog?X(r.nm):X(i));
+  const xsOf=(r,i)=>useLog?X(r.nm):X(i);
+
+  const ymax=niceCeil(Math.max(...rows.map(r=>r.max))*1.08);
+  const Y=v=>PT+(H-PT-PB)*(1-v/ymax);
+  const ylab=v=>ymax<=0.05?v.toFixed(3):v.toFixed(2);
+
+  let g='';
+
+  // ---- y grid, from zero so two cells can be compared ----
+  [0,0.5,1].forEach(f=>{
+    const v=ymax*f, y=Y(v);
+    g+=`<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W-PR}" y2="${y.toFixed(1)}"
+          stroke="#2c3242" ${f===0?'':'stroke-dasharray="2 4"'}/>`;
+    g+=`<text x="${PL-5}" y="${(y+3).toFixed(1)}" fill="#98a2b8" font-size="8.5"
+          text-anchor="end">${ylab(v)}</text>`;
+  });
+
+  // Gradient in wavelength order so the line itself carries the band hues --
+  // the same convention as the heatmap swatches, applied continuously.
+  const stops=rows.map((r,i)=>{
+    const t=((px[i]-PL)/(W-PL-PR))*100;
+    return `<stop offset="${clamp(t,0,100).toFixed(1)}%" stop-color="${bandColor(r.key)}"/>`;
+  }).join('');
+  g+=`<defs><linearGradient id="specgrad" x1="0" y1="0" x2="1" y2="0">${stops}</linearGradient></defs>`;
+
+  // ---- observed range, drawn first so the mean line stays unbroken ----
+  rows.forEach((r,i)=>{
+    const x=px[i], col=bandColor(r.key);
+    const yHi=Y(r.max), yLo=Y(r.min);   // yHi is numerically *smaller*: the
+    if(Math.abs(yHi-yLo)>1.2){          // axis is inverted, so compare the gap
+      g+=`<line x1="${x.toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yLo.toFixed(1)}"
+            stroke="${rgba(col,0.62)}" stroke-width="1.6"/>`;
+      g+=`<line x1="${(x-3.2).toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${(x+3.2).toFixed(1)}" y2="${yHi.toFixed(1)}"
+            stroke="${rgba(col,0.62)}" stroke-width="1.6"/>`;
+      g+=`<line x1="${(x-3.2).toFixed(1)}" y1="${yLo.toFixed(1)}" x2="${(x+3.2).toFixed(1)}" y2="${yLo.toFixed(1)}"
+            stroke="${rgba(col,0.62)}" stroke-width="1.6"/>`;
+    }
+  });
+
+  const pts=rows.map((r,i)=>[px[i],Y(r.mean)]);
+  const line=pts.map((p,i)=>`${i?'L':'M'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+  const base=Y(0).toFixed(1);
+  const area=`M ${pts[0][0].toFixed(1)} ${base} L `+
+    pts.map(p=>`${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' L ')+
+    ` L ${pts[pts.length-1][0].toFixed(1)} ${base} Z`;
+  g+=`<path d="${area}" fill="url(#specgrad)" opacity="0.13"/>`;
+  g+=`<path d="${line}" fill="none" stroke="url(#specgrad)" stroke-width="1.6"
+        stroke-linejoin="round" opacity="0.9"/>`;
+
+  rows.forEach((r,i)=>{
+    g+=`<circle cx="${px[i].toFixed(1)}" cy="${Y(r.mean).toFixed(1)}" r="3.4"
+          fill="${bandColor(r.key)}" stroke="#151922" stroke-width="1.4">
+          <title>${bandLabel(r.key)} &middot; mean ${fmt(r.mean,4)} &middot;
+            observed ${fmt(r.min,4)}&ndash;${fmt(r.max,4)} over ${r.n} composites</title></circle>`;
+  });
+
+  // ---- wavelength ticks ----
+  rows.forEach((r,i)=>{
+    const x=px[i], anchor=i===0?'start':i===rows.length-1?'end':'middle';
+    g+=`<text x="${x.toFixed(1)}" y="${(H-PB+15).toFixed(1)}" fill="#98a2b8" font-size="8"
+          text-anchor="${anchor}">${r.nm||''}</text>`;
+  });
+  g+=`<text x="${W-PR}" y="${H-4}" fill="#6f7688" font-size="8"
+        text-anchor="end">nm</text>`;
+
+  // ---- mean values, kept because the heatmap above carries none ----
+  rows.forEach((r,i)=>{
+    const x=px[i], py=Y(r.mean);
+    const anchor=i===0?'start':i===rows.length-1?'end':'middle';
+    const above=py-9>PT+7;
+    g+=`<text x="${x.toFixed(1)}" y="${(py+(above?-8:15)).toFixed(1)}"
+          fill="${bandColor(r.key)}" font-size="8.5" font-weight="600"
+          text-anchor="${anchor}">${fmt(r.mean,3)}</text>`;
+  });
+
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}">${g}</svg>`;
+}
+
+// ---------------------------------------------------------------- controls
+function bind(){
+  $('#play').onclick=togglePlay;
+  $('#slider').oninput=e=>setPos(Number(e.target.value));
+  $('#speed').onchange=e=>S.speed=Number(e.target.value);
+  $('#opacity').oninput=e=>{
+    S.opacity=Number(e.target.value);
+    if(S.map&&S.map.getLayer('hex-fill'))
+      S.map.setPaintProperty('hex-fill','fill-opacity',S.opacity/100);
+  };
+  $('#colormode').onchange=e=>{
+    S.mode=e.target.value;
+    $('#deltaidxctl').style.display=S.mode==='delta'?'flex':'none';
+    $('#stabilityctl').style.display=S.mode==='stability'?'flex':'none';
+    refreshColours();
+  };
+  $('#deltaidx').onchange=e=>{S.deltaIdx=e.target.value;refreshColours();};
+  $('#stabmetric').onchange=e=>{S.stabMetric=e.target.value;refreshColours();};
+  $('#extremesort').onchange=e=>{S.extremeSort=e.target.value;buildExtremes();};
+  $('#season').onchange=e=>{
+    S.season=e.target.value;
+    if(!shownPeriods().length) return;
+    // keep the playhead where it is if the current period survives the filter
+    if(shownPeriods().indexOf(S.periods[S.periodIdx])<0)
+      S.periodIdx=S.periods.indexOf(shownPeriods()[shownPeriods().length-1]);
+    buildTicks(); buildSlider(); recolor(); buildLegend(); buildExtremes();
+    if(S.selected) renderInspector(S.selected);
+  };
+  $('#deltaidxctl').style.display='none';
+  $('#stabilityctl').style.display='none';
+  $('#basemap').onclick=()=>{
+    S.satellite=!S.satellite;
+    $('#basemap').classList.toggle('on',S.satellite);
+    $('#basemap').textContent=S.satellite?'on':'off';
+    if(!S.map.getLayer('basemap')) return;
+    S.satellite?S.map.setLayoutProperty('basemap','visibility','visible')
+              :S.map.setLayoutProperty('basemap','visibility','none');
+  };
+  document.addEventListener('keydown',e=>{
+    if(e.target.tagName==='SELECT') return;
+    if(e.key===' '){e.preventDefault();togglePlay();}
+    else if(e.key==='ArrowRight'){setPos(activeIndex()+1);}
+    else if(e.key==='ArrowLeft'){setPos(activeIndex()-1);}
+    else if(e.key==='Escape'){closeInsp();}
+  });
+}
+function togglePlay(){
+  S.playing=!S.playing;
+  $('#play').innerHTML=S.playing?'&#10073;&#10073;':'&#9654;';
+  if(S.playing){
+    S.timer=setInterval(()=>setPos((activeIndex()+1)%Math.max(shownPeriods().length,1)),S.speed);
+  } else clearInterval(S.timer);
+}
+
+let LOAD_T0=0;
+function setLoading(res, mb, frac){
+  const el=$('#loading'); if(!el) return;
+  if(!LOAD_T0) LOAD_T0=performance.now();
+  const pct=Math.round(Math.max(0,Math.min(1,frac))*100);
+  const stage=frac>1?'inflating':(frac>0?'downloading':'starting');
+  const size=mb?`${mb} MB`:'';
+  el.innerHTML=
+    `<div style="text-align:center">
+       <div style="margin-bottom:10px">loading res ${res}${size?` · ${size}`:''}</div>
+       <div class="bar2"><div style="width:${Math.max(3,pct)}%;animation:none"></div></div>
+       <div style="margin-top:9px;font-size:12px">${stage} ${pct||''}% ·
+         ${((performance.now()-LOAD_T0)/1000).toFixed(1)}s elapsed</div>
+       <div style="margin-top:14px;font-size:11px;max-width:440px">
+         Still nothing after ~30s? The bundle is a local file; check the server is running
+         (<code>./serve.sh</code>) and that it is serving this folder.</div>
+     </div>`;
+}
+function hideLoading(){ LOAD_T0=0; const el=$('#loading'); if(el) el.style.display='none'; }
+function failLoading(res,err){
+  const el=$('#loading');
+  if(!el) return;
+  el.innerHTML=
+    `<div style="max-width:560px;text-align:center;line-height:1.75">
+      <div style="color:#e0a458;font-size:15px;margin-bottom:8px">could not load res ${res}</div>
+      <div style="font-size:12px">${err && err.message ? err.message : err}</div>
+      <div style="margin-top:14px;color:#98a2b8;font-size:12px">
+        Rebuild the bundle:<br>
+        <code>export PYTHONPATH=$PWD/src &amp;&amp; python -m h3lab.run --years 2013:2025 --resolutions 8,9,10 --export</code><br><br>
+        Browsers also block <code>fetch</code> on <code>file://</code>, so serve over HTTP:<br>
+        <code>cd h3lab &amp;&amp; ./serve.sh</code> then open <code>http://localhost:8000/viewer/</code>
+      </div></div>`;
+}
+
+function syncPanelTop(){
+  const el=$('#bar'); if(!el) return;
+  const h=el.getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--paneltop',(Math.round(h)+10)+'px');
+}
+// The toolbar grows when a <select> is populated (and the resolution labels are
+// long), and wraps to a second row at narrow widths. Measuring once at boot
+// catches it too early, so track it instead.
+new ResizeObserver(syncPanelTop).observe(document.querySelector('#bar'));
+window.addEventListener('resize',syncPanelTop);
+bind();
+boot();
+</script>
+</body>
+</html>

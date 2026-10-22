@@ -1,7 +1,9 @@
-# Treat the bundle as binary: no text diffs, no line-ending normalisation, and
+# Treat the bundles as binary: no text diffs, no line-ending normalisation, and
 # git can pack the compressed payloads efficiently.
-data/*.bin.gz binary
-data/*.json   binary
+data/*.bin.gz          binary
+data/*.json            binary
+data/regional/*.bin.gz binary
+data/regional/*.json   binary
 
 # Keep text files consistent across platforms.
 *.py    text diff=python

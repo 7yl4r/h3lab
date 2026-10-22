@@ -9,27 +9,26 @@ __pycache__/
 data/cache/
 
 # ---------------------------------------------------------------------------
-# The regional (Phase 1) build artefacts are NOT tracked, unlike the pilot
-# bundles above.
+# Build caches are NOT tracked. They are regenerable and enormous, and they
+# are not what the viewer reads:
 #
 # data/mosaic_cache/   the per-bin 30 m mosaic cache: 15.3 GB for 2017 alone
 #                       (664 MB a bin), and ~406 GB for the full record.
-# data/cache_regional/ the per-cell composite and change caches.
-# data/regional/       the res-7 overview, the 72 res-8 region shards and
-#                       the manifest.
+# data/cache_regional/ the per-cell composite and change caches: 70 MB.
 #
-# The regional output is 64.5 MB for one year and would grow with every year
-# added to the archive, so unlike the 14 MB pilot bundle it is not something
-# to carry in the repository. Rebuild it with:
+# data/regional/ IS tracked, deliberately -- it is the published archive the
+# viewers read, 61.6 MiB for 2017, and it is what GitHub Pages serves.
+# Rebuild everything with:
 #
 #   PYTHONPATH=src python -m h3lab.run --regional --year 2017 --resolutions 7,8
 #
 # The stages are cached independently, so the network-bound part (mosaic) is
-# paid once and everything after it is arithmetic over files on disk.
+# paid once and everything after it is arithmetic over files on disk. Drop the
+# mosaic cache on any machine that does not intend to rebuild: it is 15 GB for
+# one year and the archive is 62 MiB.
 # ---------------------------------------------------------------------------
 data/mosaic_cache/
 data/cache_regional/
-data/regional/
 data/regional_test/
 
 # Scratch: calibration prototypes and one-off measurements. The measurement

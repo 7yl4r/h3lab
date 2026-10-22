@@ -91,6 +91,47 @@ The *measured* numbers in `docs/DESIGN.md` and `docs/DECISIONS.md` come from
 scripts rather than prose so the claims can be re-checked against a build
 instead of taken on trust.
 
+### Hosting it: GitHub Pages
+
+The site is static — two HTML files, the archive they read, and nothing that
+needs a server — so GitHub Pages can serve it directly. What it needs is
+**75.1 MiB**:
+
+| item | bytes | tracked? |
+|---|---|---|
+| `data/regional/` (overview + 72 shards + manifest) | 61.6 MiB | yes |
+| `data/rookery_bay_h3_res{8,9,10}.bin.gz` | 13.4 MiB | yes |
+| `data/mosaic_cache/` (per-bin 30 m mosaic) | 15.3 GiB | **no** |
+| `data/cache_regional/` (per-cell npz) | 70.4 MiB | **no** |
+
+The two caches are the "too big" part, and they are not part of the site: the
+mosaic cache is a build accelerator that the pipeline regenerates, and the npz
+cache never leaves the build machine. Only the archive is published.
+
+`.github/workflows/pages.yml` assembles the site, runs
+`tools/measure/site_budget.py site --check`, and deploys it. The budget gate
+matters because the site grows with the record and two of GitHub's limits are
+reachable:
+
+| limit | what hits it | measured headroom |
+|---|---|---|
+| 1 GB published site | the whole archive | 328 more bins = **14.4 yr** |
+| 100 MB per file | `overview_res7.bin.gz` | 257 more bins = **11.3 yr** |
+| 100 MB per file | the largest res-8 shard | 1,781 bins = **78 yr** |
+
+The single unsharded res-7 overview is the file that breaks first, because
+D-21 made it one bundle carrying every cell for every period. The 72-way
+res-8 sharding is why the rest of the archive is not a problem. Past ~14
+years the fix is to split the overview by year (and to publish the record a
+year at a time, which also stops each year's rebuild rewriting every shard in
+git history). D-30 records the decision; `python tools/measure/site_budget.py`
+reports the current numbers.
+
+To publish, once: **Settings → Pages → Source: GitHub Actions** (the workflow
+tries to enable it itself; the switch is the fallback if repository policy
+blocks that). The site then lands at
+`https://7yl4r.github.io/h3lab/`.
+
 ---
 
 ## Why hexagons
@@ -618,14 +659,18 @@ src/h3lab/
   features.py   index computation only -- no classification
   export.py     JSON bundle, one file per resolution
   run.py        CLI
-viewer/index.html
+viewer/index.html      landing page: links both viewers
+viewer/pilot.html      the Rookery Bay pilot viewer
+viewer/regional.html   the South Florida regional viewer
 viewer/probe.html      isolated load probe — use this to diagnose a slow load
 serve.sh        serve over HTTP (fetch() is blocked on file://)
-data/cache/     78 per-composite .npz files
+data/cache/     78 per-composite .npz files (gitignored)
 data/rookery_bay_h3_meta.json    index: bbox, palette, events, block filenames
 data/rookery_bay_h3_res8.bin.gz  421 cells x 26 periods,  0.3 MB served
 data/rookery_bay_h3_res9.bin.gz  2,944 cells x 26 periods,  2.0 MB served
 data/rookery_bay_h3_res10.bin.gz 20,607 cells x 26 periods, 11.9 MB served
+data/regional/     the published regional archive (tracked, 61.6 MiB for 2017)
+data/mosaic_cache/ the 30 m mosaic cache, 15.3 GB for 2017 (gitignored)
 ```
 
 Blocks are split per resolution so the viewer fetches only what is on screen,

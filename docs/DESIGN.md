@@ -482,6 +482,43 @@ covers **one year of the cache**, not the record. Two consequences:
 The mosaic is worth keeping for the years being worked on. It is not worth
 keeping for the whole record unless the machine has the disk.
 
+### 7.1a Hosting: what the published site is
+
+The viewers are static files and the archive is static files, so the whole
+thing is a GitHub Pages site — there is no server in the read path. The site
+is **75.1 MiB** today: 61.6 MiB of regional archive (overview + 72 shards +
+manifest) and 13.4 MiB of pilot bundles. The mosaic cache (15.3 GiB) and the
+npz composite cache (70.4 MiB) are deliberately *not* published; they are
+build accelerators and the pipeline regenerates them.
+
+That size is comfortable, but it is not constant, and two of GitHub's limits
+are on a trajectory to meet it. Measured per bin from the 2017 build
+(2.7 MiB per bin, of which the overview is 349 KiB and the largest shard
+54 KiB):
+
+| limit | binding file | reached at |
+|---|---|---|
+| 1 GB published site | the whole archive | 328 more bins — **14.4 years** |
+| 100 MB per file | `overview_res7.bin.gz` | 257 more bins — **11.3 years** |
+| 100 MB per file | largest res-8 shard | 1,781 bins — 78 years |
+| 100 GB/month bandwidth (soft) | res-7 overview per cold load | ~12,200 loads/month |
+
+**The overview is the file that breaks first, and that is a direct
+consequence of D-21.** Making the res-7 overview one unsharded bundle keeps
+cold load to a single fetch (and the 3 s budget comfortable), and its cost is
+that it carries every cell for every period: it scales as `cells × periods`,
+while each shard scales as `cells_in_shard × periods` and is 72× smaller.
+Past ~11 years the overview has to be split by year. Doing that also fixes a
+second, quieter problem: because a shard holds every period, adding a year
+rewrites all 74 files, so git history grows quadratically even though the
+working tree grows linearly. Per-year payloads make each year's files
+immutable and the history linear.
+
+`tools/measure/site_budget.py` measures all of the above against a site tree
+and `--check` fails on either limit; `.github/workflows/pages.yml` runs it
+before every deploy, so a record that outgrew GitHub Pages fails the build
+rather than publishing a truncated site (D-30).
+
 ### 7.2 Compute ranking
 
 The expensive operation is scene reads for the 30 m tier: roughly

@@ -590,3 +590,51 @@ per-year choice. The one thing that must not happen is a rebuild that
 silently re-reads the network when a cached mosaic is wanted — the `mosaic`
 stage is therefore cached per bin and the rest of the pipeline never touches
 the network.
+
+---
+
+## D-30 — Publish the archive, not the caches; gate the deploy on the size budget
+*2026-10-22 · accepted · engineering*
+
+**Decision.** The archive exports are tracked in git and the viewers are
+served as a GitHub Pages site. The build caches (`data/mosaic_cache/`,
+`data/cache_regional/`) stay gitignored and are never published. The Pages
+workflow runs `tools/measure/site_budget.py --check` before uploading, so a
+site that would exceed GitHub's published-site or per-file limit fails the
+deploy instead of being published in a broken state.
+
+**Why.** The read path is entirely static: two HTML files and a set of
+gzipped binary bundles. Nothing in the viewer needs a server, a database or
+a function, so Pages is the cheapest correct host. What it cannot host is the
+build cache, and the question "is the data too big" is answered by separating
+the two: the published archive is **75.1 MiB** for 2017 (61.6 MiB regional +
+13.4 MiB pilot), while the mosaic cache alone is **15.3 GiB** — 200× larger
+than the product and regenerable (D-29).
+
+Tracking the archive changes the repository's contract, and it is the same
+contract the pilot bundles already have: the files are derived, but a fresh
+clone should be able to open the viewer without a multi-hour network build,
+and the exporter writes byte-identical output for unchanged data so a diff
+means the data changed. The `data/regional/` tree is now that, for the
+regional product.
+
+**Measured limits.** GitHub Pages publishes at most 1 GB and Git blocks any
+single file over 100 MB (warns from 50 MB). At 2.7 MiB per bin:
+
+| limit | binding file | headroom |
+|---|---|---|
+| 1 GB site | the archive | 328 bins — 14.4 years |
+| 100 MB file | the res-7 overview | 257 bins — 11.3 years |
+| 100 MB file | the largest shard | 1,781 bins — 78 years |
+
+**Consequence.** The res-7 overview is the binding constraint and the fault
+is structural, not incidental: D-21 made it one unsharded bundle, so it
+scales as `cells × periods` and is 72× larger than any shard. Past ~11 years
+it has to be split by year. There is a second reason to do that at the same
+time: because a shard carries every period, adding a year rewrites all 74
+files, so git history grows quadratically (2.7 MiB × ΣN for N years) while
+the working tree grows linearly. Per-year payloads fix both — the per-file
+limit stops being reachable and each year's files become immutable — and
+that is Phase 2 work, not Phase 1's. For the one-year slice the budget is
+7.9 % used, so the gate is there to catch the change rather than to block
+it today.
