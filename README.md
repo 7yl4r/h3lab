@@ -348,6 +348,14 @@ also binds to `127.0.0.1` only; if you are opening the page from another
 machine, a bind mismatch shows up as a hang rather than an error, which is why
 the loader now has a hard timeout.
 
+The dataset viewer takes the manifest as a parameter, so the same file reads a
+local build or any published overview repository:
+
+```
+viewer/regional.html                                          # ../data/regional/manifest.json
+viewer/regional.html?manifest=<overview-repo>/manifest.json   # anywhere, by URL
+```
+
 ## Loading performance
 
 Profiling in the browser showed the cost is **bytes on the wire**, not CPU:
