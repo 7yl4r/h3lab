@@ -127,10 +127,12 @@ year at a time, which also stops each year's rebuild rewriting every shard in
 git history). D-30 records the decision; `python tools/measure/site_budget.py`
 reports the current numbers.
 
-To publish, once: **Settings → Pages → Source: GitHub Actions** (the workflow
-tries to enable it itself; the switch is the fallback if repository policy
-blocks that). The site then lands at
-`https://7yl4r.github.io/h3lab/`.
+To publish, once: **Settings → Pages → Build and deployment → Source:
+GitHub Actions**. The workflow cannot flip that itself — it needs repository
+admin, and the workflow token does not have it, so the first run stops at
+`configure-pages` with a 403. After the switch, re-run the workflow
+(Actions → pages → Re-run all jobs) and the site lands at
+`https://7yl4r.github.io/h3lab/`. Later runs need nothing.
 
 ---
 
