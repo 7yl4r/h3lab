@@ -1,12 +1,14 @@
 name: pages
 
-# Publish this repository's site: the Rookery Bay viewer, the viewer code, and
-# the small catalog of regional datasets that live in *other* repositories.
+# Publish this repository's site: the Rookery Bay viewer and its companion
+# pages. The site is the pilot; it opens straight into it.
 #
 # What goes on the site:
 #
-#   viewer/*.html            the landing page, the pilot viewer, the dataset viewer
-#   viewer/datasets.json     the catalog of regional overview repositories
+#   viewer/pilot.html        the Rookery Bay viewer  <- the entry point
+#   viewer/index.html        a redirect to pilot.html (old links keep working)
+#   viewer/regional.html     the dataset viewer, reached by URL with ?manifest=
+#   viewer/probe.html        the isolated load probe
 #   data/rookery_bay_h3_*    the three pilot bundles
 #
 # What does not, and must not:
@@ -48,13 +50,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p site/viewer site/data
-          cp viewer/*.html viewer/*.json site/viewer/
+          cp viewer/*.html site/viewer/
           cp data/rookery_bay_h3_res*.bin.gz site/data/
           cp data/rookery_bay_h3_meta.json site/data/
           printf '%s\n' \
             '<!doctype html><meta charset="utf-8"><title>h3lab</title>' \
-            '<meta http-equiv="refresh" content="0;url=viewer/">' \
-            '<a href="viewer/">h3lab viewers</a>' > site/index.html
+            '<meta http-equiv="refresh" content="0;url=viewer/pilot.html">' \
+            '<a href="viewer/pilot.html">Rookery Bay pilot</a>' > site/index.html
           echo "site assembled:"
           du -sh site
           find site -type f | wc -l

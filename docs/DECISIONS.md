@@ -678,11 +678,12 @@ the AOI. A regional build is split into:
 - `h3-region-<res4 parent>` — one repository per res-8 region shard, 72 of them
   for South Florida 2017.
 
-`h3lab` itself publishes only the Rookery Bay pilot, the viewer code and
-`viewer/datasets.json`, a catalog of regional overview repositories. Other
-AOIs get their own overview and region repositories later; an overview "might
-differ" from the regional ones, so the catalog addresses an overview by its
-manifest URL rather than assuming a shape.
+`h3lab` itself publishes only the Rookery Bay pilot and the viewer code. The
+site opens straight into `viewer/pilot.html`; there is no landing page and no
+catalog of datasets to keep in sync. Other AOIs get their own overview and
+region repositories later, and an overview "might differ" from the regional
+ones, so the dataset viewer takes an overview manifest URL (`?manifest=`)
+rather than assuming a shape.
 
 **Why.** The previous topology (D-30) put 75.1 MiB of archive, 73 datasets and
 the pilot in one repository and one Pages site. Three problems followed, and
@@ -734,11 +735,12 @@ that the overview's limit is now its own: it no longer caps the regions.
 **Consequences.**
 
 - `data/regional/` is gitignored build output again. It is the *input* to
-  publication, not the published thing. Removing it from git also removes it
-  from the Pages site, which is why the landing page went dataset-driven.
-- The viewer takes `?manifest=<url>`; `viewer/index.html` reads
-  `viewer/datasets.json`, probes each manifest with `HEAD`, and renders an
-  unpublished dataset as "not published yet" instead of dead-ending.
+  publication, not the published thing, and removing it from git removes it
+  from the Pages site too — so the site has nothing regional to show.
+- The site is the pilot: `/h3lab/` and `/h3lab/viewer/` redirect to
+  `viewer/pilot.html`. A dataset the site does not host is opened by URL
+  (`viewer/regional.html?manifest=...`), so there is no catalog to go stale
+  and no placeholder entry to maintain.
 - The publisher (`tools/publish_datasets.py`) copies payloads unchanged and
   writes a `dataset.json` and `README.md` per repository, so the build stays
   byte-identical and a repository makes sense when opened on its own. It

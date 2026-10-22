@@ -125,7 +125,7 @@ their own repository.
 | what | where it is published | size |
 |---|---|---|
 | Rookery Bay bundles res 8/9/10 | this repository's Pages site | 13.4 MiB |
-| the viewer code + dataset catalog | this repository's Pages site | 60 KiB |
+| the viewer code (pilot, dataset viewer, probe) | this repository's Pages site | 144 KiB |
 | res-7 overview + the index manifest | `h3-overview` | 7.8 MiB |
 | one res-8 region shard, ×72 | `h3-region-<res4 parent>`, one each | 15 KiB–1.3 MiB |
 | mosaic cache / npz cache | nowhere — build machine only | 15.3 GiB / 70 MiB |
@@ -163,18 +163,23 @@ bucket plan and the GitHub plan produce identical manifests, so switching is a
 CORS policy away. `tools/measure/site_budget.py --archive data/regional` prints
 the numbers above; `--site site` gates this repository's Pages site.
 
-`.github/workflows/pages.yml` assembles the site (viewer HTML, the catalog,
-the pilot bundles and a root redirect), runs the budget gate and deploys.
-`src/`, `tools/`, `docs/`, `README.md`, the build output and the caches are
-never published.
+`.github/workflows/pages.yml` assembles the site (the four viewer pages, the
+pilot bundles and a root redirect into `viewer/pilot.html`), runs the budget
+gate and deploys. `src/`, `tools/`, `docs/`, `README.md`, the build output and
+the caches are never published.
 
 **This repository's site is live at `https://tylar.info/h3lab/`** (the project
 site inherits the user site's custom domain; `7yl4r.github.io/h3lab`
 301-redirects there). The Pages switch is already flipped for this repository;
-later pushes to `main` deploy without further setup. The regional datasets are
-not published yet: the landing page reads `viewer/datasets.json`, probes each
-manifest URL, and marks an entry "not published yet" rather than offering a
-dead link. Publishing them is the `--dist` / `--push` steps above.
+later pushes to `main` deploy without further setup. The site is the pilot and
+opens directly into it: `/h3lab/` and `/h3lab/viewer/` both redirect to
+`/h3lab/viewer/pilot.html`. There is no landing page.
+
+The regional datasets are not published yet, and this site does not pretend
+otherwise: `viewer/regional.html` is a dataset viewer that needs an overview
+manifest, and without `?manifest=` it reports that `data/regional/manifest.json`
+is missing. Once the overview repository exists, open it as
+`https://tylar.info/h3lab/viewer/regional.html?manifest=https://raw.githubusercontent.com/7yl4r/h3-overview/main/manifest.json`.
 
 To publish, once, for any *new* repository that needs Pages rather than raw
 file access: **Settings → Pages → Build and deployment → Source: GitHub
@@ -663,8 +668,7 @@ Tracked, 14 MB total:
 
 ```
 src/h3lab/*.py        the pipeline
-viewer/*.html         landing page, two viewers, load probe; no build step
-viewer/datasets.json  the catalog of regional overview repositories
+viewer/*.html         pilot, dataset viewer, redirect, load probe; no build step
 data/*.bin.gz         the Rookery Bay pilot bundle, 13.4 MB
 data/*_meta.json      its index, 1.5 kB
 tools/                verification, publication and measurement scripts
@@ -720,10 +724,9 @@ src/h3lab/
   features.py   index computation only -- no classification
   export.py     JSON bundle, one file per resolution
   run.py        CLI
-viewer/index.html      landing page: Rookery Bay + the regional catalog
+viewer/index.html      redirect to pilot.html; the site opens straight into it
 viewer/pilot.html      the Rookery Bay pilot viewer
 viewer/regional.html   dataset viewer: overview first, shards on demand
-viewer/datasets.json   catalog of regional overview repositories
 viewer/probe.html      isolated load probe — use this to diagnose a slow load
 serve.sh         serve over HTTP (fetch() is blocked on file://)
 tools/publish_datasets.py   split a build into one repository per dataset

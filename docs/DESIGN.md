@@ -503,7 +503,7 @@ per dataset:
 | what | repository | payload |
 |---|---|---|
 | Rookery Bay pilot, res 8/9/10 | this one, `7yl4r/h3lab` | 13.4 MiB |
-| viewer code + `viewer/datasets.json` | this one | 60 KiB |
+| viewer code (pilot, dataset viewer, probe) | this one | 144 KiB |
 | res-7 overview **and the index manifest** | `h3-overview` | 7.8 MiB |
 | one res-8 region shard, x72 | `h3-region-<res4 parent>` | 15 KiB-1.3 MiB |
 
@@ -563,10 +563,11 @@ build should not have. The count grows with regions, never with years.
 
 The site itself is `https://tylar.info/h3lab/` (project site on the user site's
 custom domain; the `github.io` name redirects). The Pages switch is already
-flipped for this repository. The regional datasets are **not published yet**:
-`viewer/datasets.json` lists the intended overview manifest, the landing page
-probes it with `HEAD`, and an unpublished entry is rendered as "not published
-yet" rather than as a dead link. Publishing is the `--dist` / `--push` step.
+flipped for this repository. It is the pilot and nothing else: `/h3lab/` and
+`/h3lab/viewer/` redirect to `viewer/pilot.html`, and there is no index page
+listing datasets. The regional datasets are **not published yet**; when they
+are, `viewer/regional.html` is opened with `?manifest=` pointing at the
+overview repository, so no page in this repository has to know the list.
 
 ### 7.2 Compute ranking
 

@@ -152,7 +152,7 @@ input[type=range]{accent-color:var(--accent)}
 <div id="map"></div>
 
 <div id="bar">
-  <a href="./" title="all viewers" style="color:var(--muted);text-decoration:none;font-size:12px;white-space:nowrap">&larr; viewers</a>
+  <a href="pilot.html" title="Rookery Bay pilot" style="color:var(--muted);text-decoration:none;font-size:12px;white-space:nowrap">&larr; pilot</a>
   <h1>South Florida regional <small id="srcline"></small></h1>
   <div class="ctl"><label>Detail</label><select id="resmode">
     <option value="overview">res 7 overview</option>
@@ -440,7 +440,7 @@ async function boot(){
         <div style="margin-top:6px">${err.message}</div>
         <div style="margin-top:14px;color:#98a2b8;font-size:12px">
           A dataset is a manifest URL — the overview repository is the index.
-          Choose one from the landing page, or pass it explicitly:<br>
+          Pass one explicitly:<br>
           <code>regional.html?manifest=https://raw.githubusercontent.com/&hellip;/manifest.json</code>
           <br><br>
           To build one locally:<br>
