@@ -127,12 +127,27 @@ year at a time, which also stops each year's rebuild rewriting every shard in
 git history). D-30 records the decision; `python tools/measure/site_budget.py`
 reports the current numbers.
 
+**The prototype is live at `https://tylar.info/h3lab/`** (the project site
+inherits the user site's custom domain; `7yl4r.github.io/h3lab` 301-redirects
+there). Verified from outside: landing page, both viewers and all 74 archive
+files return 200, `src/`, `tools/`, `docs/` and `README.md` return 404 — only
+the assembled `site/` tree is published — and a cold load of the res-7
+overview took **698 ms** over the network against the 3 s budget (441 ms
+against a local server, so the gap is transit, not parsing).
+
 To publish, once: **Settings → Pages → Build and deployment → Source:
 GitHub Actions**. The workflow cannot flip that itself — it needs repository
 admin, and the workflow token does not have it, so the first run stops at
 `configure-pages` with a 403. After the switch, re-run the workflow
-(Actions → pages → Re-run all jobs) and the site lands at
-`https://7yl4r.github.io/h3lab/`. Later runs need nothing.
+(Actions → pages → Re-run all jobs). Later runs need nothing.
+
+If the record outgrows Pages before it is split by year, the agreed escape
+hatch is an object store — a Google Cloud bucket holding `data/regional/`,
+with the site keeping only the HTML. That is deliberately cheap to switch
+because each viewer reads its data through one constant (`BASE` in
+`viewer/regional.html`, `STEM` in `viewer/pilot.html`), so the change is an
+absolute URL plus a CORS policy on the bucket; nothing else in the read path
+assumes the data is same-origin. It is not needed at 75.1 MiB.
 
 ---
 

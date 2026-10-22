@@ -519,6 +519,23 @@ and `--check` fails on either limit; `.github/workflows/pages.yml` runs it
 before every deploy, so a record that outgrew GitHub Pages fails the build
 rather than publishing a truncated site (D-30).
 
+The deployed prototype is `https://tylar.info/h3lab/` (project site on the
+user site's custom domain; the `github.io` name redirects). Measured from
+outside: 74 archive files all 200, nothing outside the assembled `site/` tree
+reachable, and a 698 ms cold load of the res-7 overview over the network —
+the local-server figure is 441 ms, so transit is the difference and parsing
+is not the constraint.
+
+**Overflow path.** When the record outgrows the per-file or site limit, the
+agreed move is an object store (a Google Cloud bucket) for `data/regional/`,
+with the site keeping only the HTML. This is cheap because the read path has
+exactly one place that knows where the data lives — `BASE` in
+`viewer/regional.html` (and `STEM` in `viewer/pilot.html`). Nothing else
+assumes same-origin, so the switch is an absolute URL plus a CORS policy on
+the bucket; the manifest and block format do not change. Splitting the
+overview by year remains the fix that keeps everything on Pages, and the two
+are compatible: the bucket simply holds the per-year files.
+
 ### 7.2 Compute ranking
 
 The expensive operation is scene reads for the 30 m tier: roughly

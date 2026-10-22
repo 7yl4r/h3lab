@@ -638,3 +638,22 @@ limit stops being reachable and each year's files become immutable — and
 that is Phase 2 work, not Phase 1's. For the one-year slice the budget is
 7.9 % used, so the gate is there to catch the change rather than to block
 it today.
+
+**Overflow path (agreed, not built).** If the record outgrows Pages before it
+is split by year, the archive moves to a Google Cloud bucket and the site
+keeps only the HTML. The read path has one constant that names the data
+location (`BASE` in `viewer/regional.html`, `STEM` in `viewer/pilot.html`),
+so that move is an absolute URL plus a bucket CORS policy — not a format or
+protocol change. It is the escape hatch of record, not a plan to reach for
+early: at 75.1 MiB the site uses 7.9 % of the limit and one year of archive
+costs less than the pilot's res-10 bundle.
+
+**Outcome.** Deployed and verified from outside at
+`https://tylar.info/h3lab/` (the project site inherits the user site's custom
+domain; `github.io` 301-redirects). All 74 archive files serve; `src/`,
+`tools/`, `docs/` and `README.md` 404, so the workflow publishes the
+assembled tree rather than the repository; cold load is 698 ms over the
+network against the 3 s budget. The one thing the workflow could not do
+itself was create the Pages site — that needs repository admin, and
+`actions/configure-pages` returned 403 until the setting was flipped by
+hand. Worth knowing for any other repository adopting this workflow.
