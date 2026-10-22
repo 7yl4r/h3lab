@@ -124,7 +124,7 @@ their own repository.
 
 | what | where it is published | size |
 |---|---|---|
-| Rookery Bay bundles res 8/9/10 | this repository's Pages site | 9.3 MiB |
+| Rookery Bay bundles res 8/9/10 | this repository's Pages site | 9.3 MB |
 | the viewer code (pilot, dataset viewer, probe) | this repository's Pages site | 144 KiB |
 | res-7 overview + the index manifest | `h3-overview` | 7.8 MiB |
 | one res-8 region shard, ×72 | `h3-region-<res4 parent>`, one each | 15 KiB–1.3 MiB |
