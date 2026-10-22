@@ -1,9 +1,11 @@
-"""Export the analysed composites as one compact JSON bundle for the viewer.
+"""Export the analysed composites as one compact binary bundle for the viewer.
 
-The layout is columnar: for each resolution, per-band values are stored as a
-list of per-composite arrays rather than a list of per-cell objects. That
-keeps the JSON small enough to load synchronously in a browser and avoids
-millions of tiny objects.
+The layout is columnar: for each resolution, an index is stored as a list of
+per-composite arrays rather than a list of per-cell objects. That keeps the
+payload small enough to load in a browser without millions of tiny objects.
+Reflectance is not exported for the pilot: the per-cell assessment in
+:mod:`h3lab.analysis` carries what the viewer needs, and six bands per
+composite cost six times the bytes for one layer.
 """
 
 from __future__ import annotations
@@ -13,11 +15,12 @@ import os
 
 import numpy as np
 
+from .analysis import SPECS as ANALYSIS_SPECS, analyse
 from .binary import write_block
-from .config import BANDS, BAND_INFO, INDEX_SPECS, INDICES
+from .config import BANDS, INDEX_SPECS, INDICES
 
 # INDICES comes from config; do not shadow it with a local copy here.
-ROUND = {"band": 4, "index": 4, "other": 4}
+ROUND = {"index": 4, "other": 4}
 
 PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -53,10 +56,9 @@ def export_bundle(cfg, grids, composites, resolutions, gz: bool = True) -> dict:
         "bbox": list(cfg.aoi_bbox),
         "crs": cfg.analysis_crs,
         "aoiAreaKm2": round(grids[resolutions[0]]._aoi_area, 2),
-        "bands": list(BANDS),
-        "band_info": {k: dict(BAND_INFO[k]) for k in BANDS if k in BAND_INFO},
         "indices": list(INDICES),
         "index_specs": cfg.index_specs,
+        "analysis": ANALYSIS_SPECS,
         "events": cfg.events,
         "seasons": list(cfg.seasons),
         "source": "Landsat Collection 2 Level-2 surface reflectance (NASA/USGS)",
@@ -64,8 +66,8 @@ def export_bundle(cfg, grids, composites, resolutions, gz: bool = True) -> dict:
         "stem": stem,
         "resolutions": [],
         "note": (
-            "Surface reflectance and spectral indices only. No land-cover "
-            "classification is applied anywhere in this pipeline."
+            "Spectral indices and a per-cell assessment of the whole record. "
+            "No land-cover classification is applied anywhere in this pipeline."
         ),
     }
 
@@ -85,23 +87,38 @@ def export_bundle(cfg, grids, composites, resolutions, gz: bool = True) -> dict:
             "lon": np.round(grid.centroids_lonlat[:, 0], 6).tolist(),
             "lat": np.round(grid.centroids_lonlat[:, 1], 6).tolist(),
             "areaKm2": np.round(grid.areas_km2, 6).tolist(),
-            "band": {}, "index": {},
+            "index": {},
             "observed": [], "validFraction": [], "nObs": [],
         }
+
+        # Raw (unrounded) series for the assessment. The viewer gets four
+        # decimals; the fit uses the values it would otherwise never see.
+        band_series = {b: [] for b in BANDS}
+        index_series = {k: [] for k in INDICES}
 
         for i, (year, season, _, reduced) in enumerate(items):
             refl = reduced["refl"]
             valid = reduced["observed"]
             feats = compute_indices(refl)
             for b in BANDS:
-                block["band"].setdefault(b, []).append(_clean(refl[b], ROUND["band"]))
+                band_series[b].append(np.asarray(refl[b], dtype=np.float64))
             for k in INDICES:
+                index_series[k].append(np.asarray(feats[k], dtype=np.float64))
                 block["index"].setdefault(k, []).append(_clean(feats[k], ROUND["index"]))
             block["observed"].append([bool(v) for v in valid])
             block["validFraction"].append(_clean(reduced["valid_fraction"], 3))
             block["nObs"].append([int(v) for v in reduced["n_obs"]])
 
-        block["_bands"] = list(BANDS)
+        # The assessment is per cell and per index: trend, season, fit and the
+        # largest anomaly, plus the two stability metrics that used to be
+        # derived in the browser from the band vectors.
+        block["cell"], block["cellraw"] = analyse(
+            periods,
+            {k: np.stack(v) for k, v in index_series.items()},
+            np.asarray(block["observed"], dtype=bool),
+            {b: np.stack(v) for b, v in band_series.items()},
+        )
+
         block["_indices"] = list(INDICES)
 
         # Bake the hexagon outlines once, here, rather than letting every

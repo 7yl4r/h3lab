@@ -112,9 +112,11 @@ def build_block(block: dict) -> tuple[dict, list[bytes]]:
     fields: list[dict] = []
     chunks: list[bytes] = []
 
+    # `band` is optional: the pilot export drops reflectance and ships the
+    # assessment instead, while the regional archive still carries it.
     float_groups = (
-        ("band", block["band"]),
-        ("index", block["index"]),
+        ("band", block.get("band") or {}),
+        ("index", block.get("index") or {}),
     )
     for group_name, group in float_groups:
         for name, values in group.items():
@@ -128,6 +130,32 @@ def build_block(block: dict) -> tuple[dict, list[bytes]]:
                 "scale": scale,
             })
             chunks.append(q.tobytes())
+
+    # Per-cell assessment fields have no time axis, like the change layer.
+    cell_fields = []
+    for name, values in (block.get("cell") or {}).items():
+        arr = _flat_cells(values, n_cells)
+        q, lo, scale = _quantise(arr)
+        fields.append({"name": f"cell.{name}", "dtype": "u16",
+                       "shape": [n_cells], "min": lo, "scale": scale})
+        chunks.append(q.tobytes())
+        cell_fields.append(name)
+
+    # Raw per-cell integers (e.g. the period index of an anomaly). Kept out
+    # of the float quantiser so an index round-trips exactly.
+    cellraw_fields = []
+    for name, values in (block.get("cellraw") or {}).items():
+        arr = np.asarray(values, dtype=np.int64).ravel()
+        if arr.size != n_cells:
+            raise ValueError(
+                f"cellraw field {name!r} has {arr.size} values but the block "
+                f"has {n_cells} cells"
+            )
+        fields.append({"name": f"cellraw.{name}", "dtype": "u16r",
+                       "shape": [n_cells], "missing": MISSING})
+        chunks.append(np.where((arr < 0) | (arr >= MISSING), MISSING, arr)
+                      .astype(np.uint16).tobytes())
+        cellraw_fields.append(name)
 
     # validFraction is a float: quantise it like the other numeric fields.
     vf = _flatten(block["validFraction"], n_cells)
@@ -232,6 +260,10 @@ def build_block(block: dict) -> tuple[dict, list[bytes]]:
         "fields": fields,
         "missing": MISSING,
     }
+    if cell_fields:
+        descriptor["cells"] = cell_fields
+    if cellraw_fields:
+        descriptor["cellraws"] = cellraw_fields
     if block.get("epoch"):
         descriptor["epoch"] = block["epoch"]
     if block.get("binDays"):
@@ -276,6 +308,47 @@ def read_descriptor(path: str) -> dict:
     if zlib.crc32(raw) & 0xFFFFFFFF != crc:
         raise ValueError(f"{path}: descriptor CRC mismatch")
     return json.loads(raw.decode("utf-8"))
+
+
+def read_block(path: str) -> tuple[dict, dict[str, np.ndarray]]:
+    """Read a written block in full.
+
+    Returns the descriptor and the raw (still quantised) fields keyed by
+    field name. This is the counterpart to :func:`write_block`; the migration
+    tool uses it to rebuild a published bundle without going back to scenes.
+    """
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "rb") as fh:
+        blob = fh.read()
+    if len(blob) < HEADER or blob[:4] != MAGIC:
+        raise ValueError(f"{path}: not an H3LB block")
+    _version, _flags, length, crc = struct.unpack("<HHII", blob[4:HEADER])
+    raw = blob[HEADER:HEADER + length]
+    if len(raw) != length:
+        raise ValueError(f"{path}: truncated descriptor")
+    if zlib.crc32(raw) & 0xFFFFFFFF != crc:
+        raise ValueError(f"{path}: descriptor CRC mismatch")
+    desc = json.loads(raw.decode("utf-8"))
+
+    off = HEADER + length
+    off += (-off) % ALIGN
+    out: dict[str, np.ndarray] = {}
+    for field in desc["fields"]:
+        n = 1
+        for dim in field["shape"]:
+            n *= int(dim)
+        dtype = np.uint8 if field["dtype"] == "u8" else np.uint16
+        need = n * np.dtype(dtype).itemsize
+        if off + need > len(blob):
+            raise ValueError(f"{path}: field {field['name']!r} runs past the end")
+        out[field["name"]] = np.frombuffer(
+            blob, dtype=dtype, count=n, offset=off
+        ).reshape(field["shape"])
+        off += need
+        off += (-off) % ALIGN
+    if off != len(blob):
+        raise ValueError(f"{path}: {len(blob) - off} trailing bytes")
+    return desc, out
 
 
 def write_block(block: dict, path: str, gz: bool = True) -> dict:

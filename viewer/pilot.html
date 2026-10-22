@@ -143,16 +143,17 @@ input[type=range]{accent-color:var(--accent)}
     <option value="all">both</option><option value="wet">wet</option><option value="dry">dry</option></select></div>
   <div class="ctl"><label>Colour</label><select id="colormode"></select></div>
   <div class="ctl" id="deltaidxctl" style="display:none"><label>of</label><select id="deltaidx"></select></div>
+  <div class="ctl" id="analysisidxctl" style="display:none"><label>index</label><select id="analysisidx"></select></div>
   <div class="ctl" id="stabilityctl" style="display:none"><label>as</label><select id="stabmetric">
-    <option value="churn">NDVI churn</option>
-    <option value="angle">spectral angle</option></select></div>
+    <option value="angle" selected>spectral angle</option>
+    <option value="churn">NDVI churn</option></select></div>
   <div class="ctl"><label>Baseline</label><select id="baseline"></select></div>
   <div class="ctl"><label>Opacity</label><input type="range" id="opacity" min="15" max="100" value="80" style="width:96px" /></div>
   <div class="spacer"></div>
   <div class="ctl"><label>Rank cells by</label><select id="extremesort">
-    <option value="delta">largest index change</option>
-    <option value="churn">most unsettled spectra</option>
-    <option value="stable">settlest spectra</option></select></div>
+    <option value="current">the current layer</option>
+    <option value="churn">most churning greenness</option>
+    <option value="stable">most settled spectra</option></select></div>
   <div class="ctl"><label>Satellite</label><button id="basemap" class="on">on</button></div>
 </div>
 
@@ -188,8 +189,8 @@ const fmt=(v,n=3)=>v==null||!isFinite(v)?'&mdash;':v.toFixed(n);
 
 // ---------------------------------------------------------------- state
 const S={
-  data:null, resKey:null, mode:'ndvi', deltaIdx:'ndvi', stabMetric:'churn',
-  extremeSort:'delta', stabCache:{},
+  data:null, resKey:null, mode:'stability', deltaIdx:'ndvi', analysisIdx:'ndvi',
+  stabMetric:'angle', extremeSort:'current', stabMax:{angle:1,churn:1},
   periodIdx:0, baselineIdx:0, season:'all', opacity:80,
   periods:[], selected:null, playing:false, timer:null, speed:800,
   satellite:true, geomCache:null, perf:0
@@ -205,9 +206,16 @@ const RAMPS={
   diff:[[40,90,170],[120,160,190],[236,236,232],[240,180,110],[180,50,50]],
   frac:[[25,28,36],[45,80,80],[70,150,110],[120,200,140],[200,240,180]],
   // teal = settled, amber/red = unsettled
-  stab:[[38,158,140],[120,200,182],[240,222,168],[232,150,78],[198,66,66]]
+  stab:[[38,158,140],[120,200,182],[240,222,168],[232,150,78],[198,66,66]],
+  // cyclic year: Jan blue -> summer green/gold -> autumn red/violet -> Dec
+  // blue again. The wrap is intentional; the legend says so.
+  phase:[[70,110,200],[80,150,190],[90,190,160],[130,210,110],[200,220,90],
+         [235,190,80],[235,150,70],[225,110,75],[200,90,100],[170,90,130],
+         [130,95,160],[90,100,180],[70,110,200]]
 };
 const NODATA='#282b34';
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function monthName(m){ return MONTHS[clamp(Math.round(m)-1,0,11)]; }
 
 function hex(v){ return '#'+v.map(c=>clamp(Math.round(c),0,255).toString(16).padStart(2,'0')).join(''); }
 function rampColor(t,stops){
@@ -219,15 +227,11 @@ function rampColor(t,stops){
 }
 
 /* ---- display scaling -------------------------------------------------
- * Colour ranges are display choices, not physics. Index ranges come from
- * config.INDEX_SPECS so the legend and the ramp cannot disagree; band caps
- * are fixed here and shown on the legend, because reflectance has no natural
- * ceiling and deriving one from the data would make two resolutions look
- * incomparable.
+ * Colour ranges are display choices, not physics. Panel ranges come from
+ * config.INDEX_SPECS and the assessment specs in the bundle, so the legend
+ * and the ramp cannot disagree.
  */
 const DELTA_SPAN = 0.3;                 // +/- span of the change-vs-baseline ramp
-const BAND_SPAN = {blue:0.20, green:0.30, red:0.30, nir:0.60, swir1:0.50, swir2:0.40};
-RAMPS.spec=[[12,14,22],[58,62,84],[128,132,150],[232,222,192]];
 const DOMAIN_RAMP = {greenness:'veg', 'open water':'water',
                      'canopy moisture':'frac', 'burn / bare substrate':'fire'};
 function spec(k){ return (S.data.meta.index_specs||{})[k]||{}; }
@@ -237,30 +241,8 @@ function idxRamp(k){
   return RAMPS[DOMAIN_RAMP[dom]||'veg'];
 }
 function idxLabel(k){ return spec(k).label||k.toUpperCase(); }
-
-// Chart colours per band, keyed to the band's own wavelength -- the
-// convention for plotting spectral response, where visible bands get their
-// real colour and the near-infrared continues the hue wheel past red.
-// blue 482nm -> green 562 -> red 655 -> NIR 865 (crimson) -> SWIR1 1610
-// (violet) -> SWIR2 2200 (indigo). Separated enough to read on a dark panel,
-// which all-single-colour could not manage.
-const BAND_COLORS = {
-  blue:'#4d8dfa',
-  green:'#31c275',
-  red:'#f4574f',
-  nir:'#e8499f',
-  swir1:'#b25ff0',
-  swir2:'#5f7cf2',
-};
-function bandColor(b){ return BAND_COLORS[b]||'#9aa4bb'; }
-function bandLabel(b){
-  const i=(S.data.meta.band_info||{})[b];
-  return i ? `${i.label} ${i.nm}nm` : b;
-}
-function rgba(hexStr,a){
-  const h=hexStr.replace('#','');
-  const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),bl=parseInt(h.slice(4,6),16);
-  return `rgba(${r},${g},${bl},${a})`;
+function analysisSpec(key){
+  return (S.data.meta.analysis||[]).find(a=>a.key===key)||{};
 }
 
 // Chart colours per index. Distinct hues, all readable on the dark panel.
@@ -434,13 +416,29 @@ function decodeBlock(buffer){
     return (cache[name]=out);
   }
 
+  function cellField(name){
+    if(cache[name]) return cache[name];
+    const f=desc.fields.find(x=>x.name===name);
+    const src=raw[name];
+    if(!f) return (cache[name]=null);
+    if(f.dtype==='u16r') return (cache[name]=src);
+    const out=new Float32Array(C);
+    for(let k=0;k<C;k++){
+      const q=src[k];
+      out[k]=(q===MISSING)?NaN:f.min+q*f.scale;
+    }
+    return (cache[name]=out);
+  }
+
   const block={
     periods:desc.periods, nCells:C, ids:desc.ids,
     lon:desc.lon, lat:desc.lat, areaKm2:desc.areaKm2,
-    band:{}, index:{},
+    index:{}, cell:{}, cellraw:{},
   };
-  for(const [g,names] of [['band',desc.bands],['index',desc.indices]])
-    for(const nm of names) block[g][nm]=perPeriod(`${g}.${nm}`);
+  for(const nm of (desc.indices||[])) block.index[nm]=perPeriod(`index.${nm}`);
+  // Per-cell assessment: no time axis, so these stay flat arrays.
+  for(const nm of (desc.cells||[])) block.cell[nm]=cellField(`cell.${nm}`);
+  for(const nm of (desc.cellraws||[])) block.cellraw[nm]=cellField(`cellraw.${nm}`);
   block.validFraction=perPeriod('validFraction');
   block.observed=typed('observed');
   block.nObs=typed('nObs');
@@ -500,23 +498,36 @@ function firstRes(){
 function setupModes(){
   const m=S.data.meta;
   const sel=$('#colormode'); sel.innerHTML='';
+  const groups={};
   const add=(val,label,group)=>{
     const o=document.createElement('option');
     o.value=val; o.textContent=label;
-    if(group){ const g=document.createElement('optgroup'); g.label=group; g.appendChild(o); sel.appendChild(g); }
-    else sel.appendChild(o);
+    if(group){
+      if(!groups[group]){
+        groups[group]=document.createElement('optgroup');
+        groups[group].label=group;
+        sel.appendChild(groups[group]);
+      }
+      groups[group].appendChild(o);
+    }else sel.appendChild(o);
   };
-  for(const k of m.indices) add(k, idxLabel(k));
-  add('delta','change vs baseline');
-  for(const b of m.bands) add('band:'+b, `reflectance · ${b}`, 'reflectance');
-  add('stability','stability','spectral');
+
+  // Assessment first, stability first among it: this is the layer the pilot
+  // exists to show, and it is the default view.
+  add('stability','spectral stability','assessment');
+  for(const a of (m.analysis||[])) add('analysis:'+a.key, a.label, 'assessment');
+  for(const k of m.indices) add(k, idxLabel(k), 'indices');
+  add('delta','change vs baseline','change');
 
   const dsel=$('#deltaidx'); dsel.innerHTML='';
+  const asel=$('#analysisidx'); asel.innerHTML='';
   for(const k of m.indices){
     const o=document.createElement('option'); o.value=k; o.textContent=idxLabel(k);
     dsel.appendChild(o);
+    const o2=o.cloneNode(true); asel.appendChild(o2);
   }
   dsel.value=S.deltaIdx;
+  asel.value=S.analysisIdx;
   sel.value=S.mode;
 }
 
@@ -554,7 +565,10 @@ async function applyResolution(k,fit){
   hideLoading();
   S.data.resolutions=BLOCK_CACHE[k];
   const B=BLOCK_CACHE[k];
-  S.stabCache={};
+  S.stabMax={
+    angle:maxFinite(B.cell['stab.angle']||[]),
+    churn:maxFinite(B.cell['stab.churn']||[]),
+  };
   S.periods=B.periods.slice();
   // Default to the change-detection view: earliest composite as baseline,
   // most recent as "now". Starting both on the same period makes the
@@ -595,8 +609,8 @@ function buildGeometry(){
 /* ------------------------------------------------------------------ *
  * Spectral stability
  *
- * With the classification removed, stability is measured directly on the
- * measurements rather than on derived labels:
+ * Stability is measured directly on the measurements rather than on derived
+ * labels:
  *
  *   churn  mean |dNDVI| between consecutive observed composites. Detects
  *          greenness moving. This is the analogue of "this cell changed
@@ -608,85 +622,27 @@ function buildGeometry(){
  *          than its brightness -- a cell can double in reflectance without
  *          rotating its shape, and angle will not notice, while churn will.
  *
- * Both are per-resolution memoised and derived from arrays already resident,
- * so no bundle rebuild is involved.
+ * Both are computed at export time (h3lab.analysis) and shipped as per-cell
+ * fields, because they are the two things that need the band vectors. Keeping
+ * the bands in the browser just to derive them would put six times the bytes
+ * on the wire for one layer.
  * ------------------------------------------------------------------ */
 const STAB_MIN_PERIODS = 4;
+// Minimum usable composites for a trend-and-season fit. Matches
+// MIN_FIT_OBS in h3lab.analysis; the export does not write a fit below it.
+const MIN_FIT_OBS = 8;
 // Summed reflectance across the six bands below which a spectral angle is
-// treated as meaningless rather than reported as a large number.
+// treated as meaningless rather than reported as a large number. The export
+// applies the same threshold; this copy is for the legend.
 const ANGLE_MIN_BRIGHTNESS = 0.10;
 
-function spectralAngleDeg(a, b){
-  // a, b are Float32Array views of nCells values for one band each,
-  // supplied as parallel arrays by the caller.
-  let dot=0, na=0, nb=0;
-  for(let i=0;i<a.length;i++){
-    const x=a[i], y=b[i];
-    if(!isFinite(x)||!isFinite(y)){ dot=NaN; break; }
-    dot+=x*y; na+=x*x; nb+=y*y;
-  }
-  if(!isFinite(dot)||na<1e-12||nb<1e-12) return NaN;
-  let cos=dot/Math.sqrt(na*nb);
-  cos=Math.max(-1,Math.min(1,cos));
-  return Math.acos(cos)*180/Math.PI;
+function maxFinite(a){
+  let mx=0;
+  for(let i=0;i<a.length;i++) if(isFinite(a[i])&&a[i]>mx) mx=a[i];
+  return mx||1;
 }
 
-function stabilitySeries(metric){
-  const key=S.resKey+'|'+metric;
-  if(S.stabCache[key]) return S.stabCache[key];
-  const B=S.data.resolutions;
-  const P=B.periods.length, C=B.nCells;
-  const out=new Float32Array(C).fill(NaN);
-
-  // Per-cell list of observed composite indices, reused by both metrics.
-  // One bucket per CELL, not per period.
-  const seenIdx=[];
-  for(let c=0;c<C;c++) seenIdx.push([]);
-  for(let c=0;c<C;c++)
-    for(let i=0;i<P;i++) if(B.observed[i][c]) seenIdx[c].push(i);
-
-  for(let c=0;c<C;c++){
-    const list=seenIdx[c];
-    if(list.length<2) continue;
-    if(metric==='churn'){
-      const a=B.index.ndvi;
-      let acc=0,n=0;
-      for(let k=1;k<list.length;k++){
-        const x=a[list[k-1]][c], y=a[list[k]][c];
-        if(isMissing(x)||isMissing(y)) continue;
-        acc+=Math.abs(y-x); n++;
-      }
-      if(n) out[c]=acc/n;
-    }else if(metric==='angle'){
-      const b=B.band;
-      let acc=0,n=0;
-      for(let k=1;k<list.length;k++){
-        const i=list[k-1], j=list[k];
-        let ok=true, sumA=0, sumB=0;
-        const va=[],vb=[];
-        for(const nm of S.data.meta.bands){
-          const x=b[nm][i][c], y=b[nm][j][c];
-          if(isMissing(x)||isMissing(y)){ ok=false; break; }
-          va.push(x); vb.push(y); sumA+=x; sumB+=y;
-        }
-        // Dark spectra are numerically useless for an angle: Collection 2
-        // scaling drives open water near zero, where the denominator in
-        // cos(angle) collapses and tiny differences swing the angle wildly.
-        // Require a real reflectance signal before reporting one.
-        if(!ok || sumA<ANGLE_MIN_BRIGHTNESS || sumB<ANGLE_MIN_BRIGHTNESS) continue;
-        const ang=spectralAngleDeg(Float64Array.from(va), Float64Array.from(vb));
-        if(isFinite(ang)){ acc+=ang; n++; }
-      }
-      if(n) out[c]=acc/n;
-    }
-  }
-
-  let mx=0; for(let i=0;i<C;i++) if(isFinite(out[i])&&out[i]>mx) mx=out[i];
-  S.stabCache[key+'#max']=mx||1;
-  return (S.stabCache[key]=out);
-}
-
-/** Spectral summary of one cell, for the biography. */
+/** Stability summary of one cell, for the biography. */
 function stabilitySummary(c){
   const B=S.data.resolutions;
   const idx=[];
@@ -694,8 +650,8 @@ function stabilitySummary(c){
   if(idx.length<2) return null;
   return {
     seen: idx.length,
-    churn: stabilitySeries('churn')[c],
-    angle: stabilitySeries('angle')[c],
+    churn: B.cell['stab.churn'] ? B.cell['stab.churn'][c] : NaN,
+    angle: B.cell['stab.angle'] ? B.cell['stab.angle'][c] : NaN,
     thin: idx.length < STAB_MIN_PERIODS,
   };
 }
@@ -703,22 +659,39 @@ function stabilitySummary(c){
 function buildColourCache(){
   const t0=performance.now();
   const B=S.data.resolutions;
-  const m=S.data.meta;
   const n=B.nCells, p=S.periods.length;
   FEATCOL=[];
 
-  for(let i=0;i<p;i++){
+  // Assessment layers summarise the whole record, so they are one colour per
+  // cell rather than one per composite. Sharing the array across periods is
+  // safe: recolor() only reads it.
+  if(S.mode==='stability'||S.mode.startsWith('analysis:')){
     const out=new Array(n);
     if(S.mode==='stability'){
-      const ser=stabilitySeries(S.stabMetric);
+      const key=S.stabMetric==='angle'?'stab.angle':'stab.churn';
+      const ser=B.cell[key]||[];
+      const mx=S.stabMax[S.stabMetric]||1;
+      for(let c=0;c<n;c++)
+        out[c]=isFinite(ser[c])?rampColor(ser[c]/mx,RAMPS.stab):NODATA;
+    }else{
+      const key=S.mode.slice('analysis:'.length);
+      const sp=analysisSpec(key);
+      const arr=B.cell[`${key}.${S.analysisIdx}`]||[];
+      const [lo,hi]=sp.range||[0,1];
+      const ramp=RAMPS[sp.ramp]||RAMPS.diff;
       for(let c=0;c<n;c++){
-        if(!B.observed[i][c]){ out[c]=NODATA; continue; }
-        const v=ser[c];
-        // A cell with too few observations is left blank rather than scored.
-        if(!isFinite(v)){ out[c]=NODATA; continue; }
-        out[c]=rampColor(v/(S.stabCache[`${S.resKey}|${S.stabMetric}#max`]||1), RAMPS.stab);
+        const v=arr[c];
+        out[c]=isFinite(v)?rampColor((v-lo)/(hi-lo),ramp):NODATA;
       }
-    }else if(S.mode==='delta'){
+    }
+    for(let i=0;i<p;i++) FEATCOL.push(out);
+    mark('colour',performance.now()-t0,`${p} periods · ${S.mode}`);
+    return;
+  }
+
+  for(let i=0;i<p;i++){
+    const out=new Array(n);
+    if(S.mode==='delta'){
       const key=S.deltaIdx, arr=B.index[key];
       for(let c=0;c<n;c++){
         const a=arr[S.baselineIdx][c], b=arr[i][c];
@@ -726,14 +699,6 @@ function buildColourCache(){
           out[c]=NODATA; continue;
         }
         out[c]=rampColor((b-a)/DELTA_SPAN+0.5, RAMPS.diff);
-      }
-    }else if(S.mode.startsWith('band:')){
-      const band=S.mode.slice(5);
-      const arr=B.band[band][i];
-      for(let c=0;c<n;c++){
-        const v=arr[c];
-        if(!B.observed[i][c]||isMissing(v)){ out[c]=NODATA; continue; }
-        out[c]=rampColor(clamp(v/BAND_SPAN[band],0,1), RAMPS.spec);
       }
     }else{
       const key=S.mode;                       // an index name
@@ -929,16 +894,28 @@ function buildLegend(){
     h=ramp(RAMPS.stab,['stable','unstable'],
       {title:isAngle?'spectral stability':'NDVI stability',
        sub: isAngle
-         ? `Mean spectral angle between consecutive observed composites: the shape of the 6-band spectrum, independent of brightness. Needs &ge;${STAB_MIN_PERIODS} observations, and only where the spectrum is bright enough (summed reflectance &ge;${ANGLE_MIN_BRIGHTNESS}) for an angle to mean anything. Dark water cells are left blank.`
-         : `Mean |&Delta;NDVI| between consecutive observed composites. Needs &ge;${STAB_MIN_PERIODS} observations; thinner cells are left blank.`});
+         ? `Mean spectral angle between consecutive observed composites: the shape of the 6-band spectrum, independent of brightness. Whole record, shaded from 0 to ${S.stabMax.angle.toFixed(1)}&deg;. Dark spectra (summed reflectance below ${ANGLE_MIN_BRIGHTNESS}) are skipped.`
+         : `Mean |&Delta;NDVI| between consecutive observed composites over the whole record, shaded from 0 to ${S.stabMax.churn.toFixed(2)}. Needs at least two observations.`});
+    h+=`<div class="sub" style="margin:6px 0 0;font-size:10.5px">${S.stabMetric==='angle'
+      ? 'The default layer: where the shape of the spectrum is moving, regardless of brightness.'
+      : 'Where greenness is moving between composites.'} The period slider does not change an assessment layer.</div>`;
   }else if(S.mode==='delta'){
     h=ramp(RAMPS.diff,['&minus;'+DELTA_SPAN,0,'+'+DELTA_SPAN],
       {title:`&Delta; ${idxLabel(S.deltaIdx)} vs ${periodLabel(S.baselineIdx)}`});
-  }else if(S.mode.startsWith('band:')){
-    const band=S.mode.slice(5);
-    h=ramp(RAMPS.spec,['0',BAND_SPAN[band].toFixed(2)],
-      {title:`reflectance &middot; ${bandLabel(band)}`,
-       sub:'Surface reflectance, Collection 2 Level-2 scaling. Capped at '+BAND_SPAN[band]+' for display.'});
+  }else if(S.mode.startsWith('analysis:')){
+    const key=S.mode.slice('analysis:'.length), sp=analysisSpec(key);
+    const [lo,hi]=sp.range||[0,1];
+    const signed=v=>(v>0?'+':'')+v;
+    const unit=sp.unit||'';
+    const labels=key==='phase' ? ['Jan','Dec']
+      : [signed(lo)+unit, signed(hi)+unit];
+    const extra=key==='phase'
+      ? ' The ramp is cyclic: January and December meet at both ends.'
+      : ` Display span ${signed(lo)} to ${signed(hi)}${unit}; values outside are clipped.`;
+    h=ramp(RAMPS[sp.ramp]||RAMPS.diff, labels,
+      {title:`${sp.label} \u00b7 ${idxLabel(S.analysisIdx)}`,
+       sub:(sp.desc||'')+extra});
+    h+=`<div class="sub" style="margin:6px 0 0;font-size:10.5px">Whole record: the period slider does not change this layer. Hover a cell for the composite behind its largest anomaly.</div>`;
   }else{
     const [lo,hi]=idxRange(S.mode);
     h=ramp(idxRamp(S.mode),[lo.toFixed(1),hi.toFixed(1)],
@@ -949,29 +926,66 @@ function buildLegend(){
 }
 
 // ---------------------------------------------------------------- ranked cells
+function analysisValue(key,v){
+  if(key==='trend') return (v>=0?'+':'')+v.toFixed(4);
+  if(key==='trendz') return (v>=0?'+':'')+v.toFixed(1)+'\u03c3';
+  if(key==='amp') return v.toFixed(3);
+  if(key==='phase') return monthName(v);
+  if(key==='r2') return v.toFixed(2);
+  if(key==='anom') return v.toFixed(1)+'\u03c3';
+  return String(v);
+}
+
 function buildExtremes(){
   const B=S.data.resolutions, el=$('#extremes');
-  const sort=S.extremeSort||'delta';
+  const sort=S.extremeSort||'current';
+  const row=(o,n,val,color)=>
+    `<div class="ex" data-c="${o.c}"><span class="rk">${n+1}</span>`+
+    `<span class="nm" title="${B.ids[o.c]}">${B.ids[o.c].slice(-9)}</span>`+
+    `<span class="vl"${color?` style="color:${color}"`:''}>${val}</span></div>`;
+  const wire=()=>el.querySelectorAll('.ex').forEach(
+    d=>d.onclick=()=>selectCell(B.ids[Number(d.dataset.c)]));
 
-  if(sort==='stable'||sort==='churn'){
-    const metric = sort==='stable' ? 'angle' : 'churn';
-    const ser=stabilitySeries(metric);
-    const isAngle = metric==='angle';
-    const rank = sort==='stable' ? (x,y)=>x-y : (x,y)=>y-x;
+  // ---- stability, either because it was asked for explicitly or because it
+  // is the layer on screen.
+  let stabMetric=null, stabAsc=false, stabTitle=null;
+  if(sort==='stable'){ stabMetric='angle'; stabAsc=true; stabTitle='most settled spectra'; }
+  else if(sort==='churn'){ stabMetric='churn'; stabAsc=false; stabTitle='most churning greenness'; }
+  else if(S.mode==='stability'){
+    stabMetric=S.stabMetric; stabAsc=false;
+    stabTitle=stabMetric==='angle'?'most unsettled spectra':'most unsettled greenness';
+  }
+  if(stabMetric){
+    const ser=B.cell[stabMetric==='angle'?'stab.angle':'stab.churn']||[];
     const cells=[];
     for(let c=0;c<B.nCells;c++) if(isFinite(ser[c])) cells.push({c,v:ser[c]});
-    cells.sort((p,q)=>rank(p.v,q.v));
-    const top=cells.slice(0,10);
-    el.innerHTML=`<h3>${sort==='stable'?'settlest spectra':'most unsettled spectra'}</h3>`+
-      (top.length? top.map((o,n)=>
-        `<div class="ex" data-c="${o.c}"><span class="rk">${n+1}</span>`+
-        `<span class="nm" title="${B.ids[o.c]}">${B.ids[o.c].slice(-9)}</span>`+
-        `<span class="vl">${o.v.toFixed(isAngle?2:3)}${isAngle?'&deg;':''}</span></div>`).join('')
+    cells.sort((p,q)=>stabAsc?p.v-q.v:q.v-p.v);
+    const isAngle=stabMetric==='angle';
+    el.innerHTML=`<h3>${stabTitle}<br><span style="font-weight:400;text-transform:none;letter-spacing:0">${isAngle?'mean spectral angle':'mean |&Delta;NDVI|'}</span></h3>`+
+      (cells.length? cells.slice(0,10).map((o,n)=>
+        row(o,n,o.v.toFixed(isAngle?2:3)+(isAngle?'&deg;':''))).join('')
         : '<div style="color:var(--muted)">not enough observed composites</div>');
-    el.querySelectorAll('.ex').forEach(d=>d.onclick=()=>selectCell(B.ids[Number(d.dataset.c)]));
+    wire();
     return;
   }
 
+  // ---- the assessment layer on screen
+  if(S.mode.startsWith('analysis:')){
+    const key=S.mode.slice('analysis:'.length), sp=analysisSpec(key);
+    const arr=B.cell[`${key}.${S.analysisIdx}`]||[];
+    const cells=[];
+    for(let c=0;c<B.nCells;c++) if(isFinite(arr[c])) cells.push({c,v:arr[c]});
+    cells.sort(sp.rank==='desc'?(p,q)=>q.v-p.v:(p,q)=>p.v-q.v);
+    el.innerHTML=`<h3>${sp.rankLabel||sp.label} \u00b7 ${idxLabel(S.analysisIdx)}`+
+      `<br><span style="font-weight:400;text-transform:none;letter-spacing:0">whole record</span></h3>`+
+      (cells.length? cells.slice(0,10).map((o,n)=>
+        row(o,n,analysisValue(key,o.v))).join('')
+        : '<div style="color:var(--muted)">no fitted cells</div>');
+    wire();
+    return;
+  }
+
+  // ---- change against the baseline
   const i=S.periodIdx, k=S.deltaIdx;
   const a=B.index[k][S.baselineIdx], b=B.index[k][i];
   const items=[];
@@ -984,11 +998,9 @@ function buildExtremes(){
   const top=items.slice(0,10);
   el.innerHTML=`<h3>largest &Delta; ${idxLabel(k)}<br><span style="font-weight:400;text-transform:none;letter-spacing:0">vs ${periodLabel(S.baselineIdx)}</span></h3>`+
     (top.length? top.map((o,n)=>
-      `<div class="ex" data-c="${o.c}"><span class="rk">${n+1}</span>`+
-      `<span class="nm" title="${B.ids[o.c]}">${B.ids[o.c].slice(-9)}</span>`+
-      `<span class="vl" style="color:${o.d<0?'#e07a6a':'#7fd4c1'}">${o.d>0?'+':''}${o.d.toFixed(3)}</span></div>`
-    ).join('') : '<div style="color:var(--muted)">no comparable cells</div>');
-  el.querySelectorAll('.ex').forEach(d=>d.onclick=()=>selectCell(B.ids[Number(d.dataset.c)]));
+      row(o,n,(o.d>0?'+':'')+o.d.toFixed(3),o.d<0?'#e07a6a':'#7fd4c1')).join('')
+      : '<div style="color:var(--muted)">no comparable cells</div>');
+  wire();
 }
 
 // ---------------------------------------------------------------- inspector
@@ -998,20 +1010,92 @@ function selectCell(id){
     S.map.setFilter('hex-sel',['==',['get','id'],id]);
   renderInspector(id);
 }
-/** Least-squares slope of y against position in x, ignoring gaps. */
-function trend(x){
-  const pts=[];
-  for(let i=0;i<x.length;i++) if(isFinite(x[i])) pts.push([i,x[i]]);
-  if(pts.length<3) return null;
-  const n=pts.length;
-  const mx=pts.reduce((a,p)=>a+p[0],0)/n;
-  const my=pts.reduce((a,p)=>a+p[1],0)/n;
-  let sxy=0, sxx=0;
-  for(const [px,py] of pts){ sxy+=(px-mx)*(py-my); sxx+=(px-mx)**2; }
-  return sxx>0 ? sxy/sxx : null;
+/** Gaussian elimination for a 3x3 system; null if singular. */
+function solve3(A,b){
+  const M=A.map((r,i)=>[...r,b[i]]);
+  for(let c=0;c<3;c++){
+    let p=c;
+    for(let r=c+1;r<3;r++) if(Math.abs(M[r][c])>Math.abs(M[p][c])) p=r;
+    if(Math.abs(M[p][c])<1e-12) return null;
+    [M[c],M[p]]=[M[p],M[c]];
+    for(let r=0;r<3;r++){
+      if(r===c) continue;
+      const f=M[r][c]/M[c][c];
+      for(let k=c;k<4;k++) M[r][k]-=f*M[c][k];
+    }
+  }
+  return [M[0][3]/M[0][0], M[1][3]/M[1][1], M[2][3]/M[2][2]];
+}
+function inv3(A){
+  const cols=[];
+  for(let j=0;j<3;j++){
+    const e=[0,0,0]; e[j]=1;
+    const x=solve3(A,e); if(!x) return null;
+    cols.push(x);
+  }
+  return [[cols[0][0],cols[1][0],cols[2][0]],
+          [cols[0][1],cols[1][1],cols[2][1]],
+          [cols[0][2],cols[1][2],cols[2][2]]];
 }
 
-/** Write the biography of one cell, in spectra and indices only. */
+/** Trend and season for one cell, in the biography.
+ *
+ *  The same model the export fits (h3lab.analysis): y = a + b (year - mean)
+ *  + s * wet. It is recomputed here, for one cell, so the chart can draw the
+ *  fitted values; the map layers use the precomputed scalars. The model is
+ *  deliberately not a free harmonic -- with two composites a year its phase
+ *  and the within-year trend are confounded.
+ */
+function fitCell(values, periods){
+  const pts=[];
+  for(let i=0;i<values.length;i++)
+    if(isFinite(values[i])) pts.push({i,v:values[i],
+      y:periods[i].year, w:periods[i].season==='wet'?1:0});
+  const n=pts.length;
+  if(n<MIN_FIT_OBS) return null;
+  const my=pts.reduce((a,p)=>a+p.y,0)/n;
+  const A=[[0,0,0],[0,0,0],[0,0,0]], b=[0,0,0];
+  for(const p of pts){
+    const x=[1,p.y-my,p.w];
+    for(let i=0;i<3;i++){
+      b[i]+=x[i]*p.v;
+      for(let j=0;j<3;j++) A[i][j]+=x[i]*x[j];
+    }
+  }
+  const beta=solve3(A,b);
+  if(!beta) return null;
+
+  let sse=0, sy=0;
+  for(const p of pts){
+    const f=beta[0]+beta[1]*(p.y-my)+beta[2]*p.w;
+    sse+=(p.v-f)**2; sy+=p.v;
+  }
+  const mean=sy/n;
+  let sst=0;
+  for(const p of pts) sst+=(p.v-mean)**2;
+  const df=n-3;
+  const sigma=df>0?Math.sqrt(sse/df):NaN;
+  const inv=inv3(A);
+  const se=inv?Math.sqrt(Math.max(0,sigma*sigma*inv[1][1])):NaN;
+
+  const fitted=new Float64Array(values.length).fill(NaN);
+  let anom=NaN, anomIdx=-1;
+  for(let i=0;i<values.length;i++){
+    const p=periods[i];
+    const f=beta[0]+beta[1]*(p.year-my)+beta[2]*(p.season==='wet'?1:0);
+    fitted[i]=f;
+    if(isFinite(values[i]) && isFinite(sigma) && sigma>1e-12){
+      const z=Math.abs(values[i]-f)/sigma;
+      if(!isFinite(anom) || z>anom){ anom=z; anomIdx=i; }
+    }
+  }
+  return {n, beta, my, trend:beta[1], amp:Math.abs(beta[2])/2,
+          phase:beta[2]>=0?8:1, r2:sst>1e-12?1-sse/sst:NaN,
+          se, trendz:se>1e-12?beta[1]/se:NaN, sigma,
+          fitted, anom, anomIdx};
+}
+
+/** Write the biography of one cell from its indices and precomputed stability. */
 function renderInspector(id){
   const B=S.data.resolutions, m=S.data.meta, el=$('#insp');
   const c=B.ids.indexOf(id);
@@ -1045,22 +1129,43 @@ function renderInspector(id){
 
   const good=ndviAll.filter(v=>!isMissing(v));
   const hi=good.length?Math.max(...good):null, lo=good.length?Math.min(...good):null;
-  const slope=trend(ndviAll);
+
+  // The biography follows the layer on screen where that layer names an
+  // index, and NDVI otherwise. NDVI is the ribbon below either way, so the
+  // default reading is unchanged; selecting NDWI describes NDWI, and
+  // selecting a trend or season layer switches the summary and the
+  // decomposition chart with it.
+  const idx = S.mode.startsWith('analysis:') ? S.analysisIdx
+            : S.mode==='delta' ? S.deltaIdx
+            : m.indices.includes(S.mode) ? S.mode : 'ndvi';
+  const vals=B.index[idx].map(a=>a[c]);
+  const fit=fitCell(vals, B.periods);
+  const trendTxt=fit?`${fit.trend>=0?'+':''}${fit.trend.toFixed(4)}/yr`:'&mdash;';
+  const ampTxt=fit?fit.amp.toFixed(3):'&mdash;';
+  const peakTxt=fit?monthName(fit.phase):'&mdash;';
+  const r2Txt=fit?fit.r2.toFixed(2):'&mdash;';
+  const anomTxt=fit&&isFinite(fit.anom)
+    ? `${fit.anom.toFixed(1)}&sigma; &middot; ${periodLabel(fit.anomIdx)}` : '&mdash;';
 
   let narrative;
   if(!obs.length){
     narrative=`No observed composites for this cell at this resolution.`;
-  }else if(mv.d<0.02){
+  }else if(mv.d<0.02 && (!fit || Math.abs(fit.trend)<0.002)){
     narrative=`A <b>spectrally quiet</b> cell: NDVI never moves more than 0.02 between consecutive
-      observed composites. Mean spectral angle ${fmt(stab?stab.angle:null,2)}&deg;. This is the kind of
-      cell worth reading unsettled ones <i>against</i>.`;
+      observed composites and the fitted ${idxLabel(idx)} trend is flat. Mean spectral angle
+      ${fmt(stab?stab.angle:null,2)}&deg;. This is the kind of cell worth reading
+      unsettled ones <i>against</i>.`;
   }else{
     const arrow = mv.y>mv.x ? '&rarr;' : '&larr;';
     narrative=`NDVI moved <b>${fmt(mv.x,3)} ${arrow} ${fmt(mv.y,3)}</b> between
       <b>${periodLabel(mv.i)}</b> and <b>${periodLabel(mv.j)}</b>, the largest single step in the record.
       ${evHit?`<b>${evHit.full||evHit.label}</b> falls between those two composites.`:
               'No annotated event falls between those two composites.'}
-      The cell now reads ${fmt(ndviAll[i0],3)}, against a record range of ${fmt(lo,3)} to ${fmt(hi,3)}.`;
+      The cell now reads ${fmt(ndviAll[i0],3)}, against a record range of ${fmt(lo,3)} to ${fmt(hi,3)}.
+      ${fit?`Across the record ${idxLabel(idx)} ${fit.trend>=0?'rises':'falls'}
+      <b>${trendTxt}</b>, with a seasonal swing of <b>&plusmn;${ampTxt}</b> peaking in
+      <b>${peakTxt}</b>; trend and season explain ${(fit.r2*100).toFixed(0)}% of the variance.`
+      :`Not enough observed composites to fit a trend and season.`}`;
   }
 
   // ---- NDVI ribbon: one cell per composite, coloured on the NDVI ramp ----
@@ -1075,24 +1180,18 @@ function renderInspector(id){
     ? `<div class="riblabels"><div>${B.periods[0].year}</div><div style="flex:1"></div><div>${B.periods[B.periods.length-1].year}</div></div>`
     : `<div class="riblabels">${B.periods.map(p=>`<div>${p.season[0]}</div>`).join('')}</div>`;
 
-  // One heatmap for both groups: twelve series share a single time axis, so
-  // a composite that misbehaved across many series reads as one vertical run.
-  // Colours on the left identify the series; colours in the cells are reserved
-  // for the anomaly itself.
+  // One heatmap for every index: they share a single time axis, so a
+  // composite that misbehaved across many series reads as one vertical run.
+  // Colours on the left identify the series; colours in the cells are
+  // reserved for the anomaly itself.
   const heat=heatmapChart([
-    {title:'reflectance', rows:m.bands.map(b=>({
-        label:bandLabel(b), color:bandColor(b),
-        values:B.periods.map((p,i)=>B.band[b][i][c])}))},
     {title:'indices', rows:m.indices.map(k=>({
         label:idxLabel(k), color:INDEX_COLORS[k]||'#9aa4bb',
         values:B.periods.map((p,i)=>B.index[k][i][c])}))},
   ]);
 
-  // Spectral profile: the absolute reflectance numbers the heatmap cannot
-  // carry, expressed as a shape rather than a column of six means.
-  const profile=spectrumProfile(m.bands.map(b=>({
-    key:b, nm:((S.data.meta.band_info||{})[b]||{}).nm,
-    values:B.periods.map((p,i)=>B.band[b][i][c])})));
+  // The decomposition the map layers summarise, drawn for this one cell.
+  const decomp=decompositionChart(vals, B.periods, fit);
 
   el.innerHTML=`
     <button class="close" title="Close (esc)">&times;</button>
@@ -1114,20 +1213,24 @@ function renderInspector(id){
       <div class="kv"><span>valid fraction</span><b>${fmt(B.validFraction[i0][c],2)}</b></div>
     </div>
 
-    <div class="sect">record summary</div>
+    <div class="sect">record summary &mdash; ${idxLabel(idx)}</div>
     <div class="grid2">
       <div class="kv"><span>NDVI range</span><b>${fmt(lo,3)} – ${fmt(hi,3)}</b></div>
-      <div class="kv"><span>NDVI trend</span><b>${slope==null?'&mdash;':(slope>=0?'+':'')+(slope*100).toFixed(2)+' /yr'}</b></div>
+      <div class="kv"><span>${idxLabel(idx)} trend</span><b>${trendTxt}</b></div>
+      <div class="kv"><span>trend significance</span><b>${fit&&isFinite(fit.trendz)?fit.trendz.toFixed(1)+'&sigma;':'&mdash;'}</b></div>
+      <div class="kv"><span>seasonal swing</span><b>${fit?'&plusmn;'+ampTxt+' &middot; '+peakTxt:'&mdash;'}</b></div>
+      <div class="kv"><span>fit R&sup2;</span><b>${r2Txt}</b></div>
+      <div class="kv"><span>largest anomaly</span><b>${anomTxt}</b></div>
       <div class="kv"><span>mean |&Delta;NDVI|</span><b>${stab?fmt(stab.churn,3):'&mdash;'}</b></div>
-      <div class="kv"><span>mean spectral angle</span><b>${stab?fmt(stab.angle,2)+'°':'&mdash;'}</b></div>
-      <div class="kv"><span>largest step</span><b>${mv.d?fmt(mv.d,3):'&mdash;'}</b></div>
-      <div class="kv"><span>spectral verdict</span><b>${stabVerdict(stab)}</b></div>
+      <div class="kv"><span>mean spectral angle</span><b>${stab?fmt(stab.angle,2)+'&deg;':'&mdash;'}</b></div>
+      <div class="kv"><span>largest NDVI step</span><b>${mv.d?fmt(mv.d,3):'&mdash;'}</b></div>
+      <div class="kv"><span>stability</span><b>${stabVerdict(stab)}</b></div>
     </div>
     ${stab && stab.thin ? `<div class="sub" style="margin:2px 0 0;color:var(--warn)">Only
-      ${stab.seen} observed composite${stab.seen>1?'s':''}; the stability layer needs
-      &ge;${STAB_MIN_PERIODS}, so this cell is blank there.</div>` : ''}
+      ${stab.seen} observed composite${stab.seen>1?'s':''}; stability is scored but
+      flagged thin, and the trend/season fit needs eight composites.</div>` : ''}
 
-    <div class="sect">spectra and indices through the record</div>
+    <div class="sect">indices through the record</div>
     ${heat}
     <div class="sub" style="margin:6px 0 0;font-size:10.5px">Colour is each
       series&rsquo; distance from its own record mean, in standard deviations:
@@ -1135,11 +1238,14 @@ function renderInspector(id){
       Every row has its own scale, so rows stay comparable without sharing an
       axis; near-black cells were never observed. A vertical run means one
       composite sat oddly across many series at once.</div>
-    <div class="sect">spectral profile &mdash; record mean, whisker is observed range</div>
-    ${profile}
-    <div class="sub" style="margin:5px 0 0;font-size:10.5px">Band-centre means; the
-      line only joins band centres, it is not a measured continuum. The axis starts
-      at zero so a dark cell cannot look bright.</div>
+
+    <div class="sect">seasonal decomposition &mdash; ${idxLabel(idx)}</div>
+    ${decomp}
+    <div class="sub" style="margin:5px 0 0;font-size:10.5px">Dots are observed
+      composites; the solid line is the fitted trend plus the wet/dry offset,
+      the dashed line the trend with the season removed. The red rule marks the
+      largest residual (${fit&&isFinite(fit.anom)?fit.anom.toFixed(1)+'&sigma;':'&mdash;'}),
+      the one composite that least fits this cell&rsquo;s own habit.</div>
 
     <div class="sect">map</div>
     <div style="display:flex;gap:7px;flex-wrap:wrap">
@@ -1171,8 +1277,7 @@ function closeInsp(){ S.selected=null; $('#insp').style.display='none';
 /* ---- anomaly heatmap -------------------------------------------------
  * Rows are series, columns are composites. Colour is each series' distance
  * from its own record mean, in standard deviations, so a row's position in
- * the record is readable without a y-axis and twelve series cost twelve
- * short rows.
+ * the record is readable without a y-axis and six series cost six short rows.
  *
  * This is the form that actually scales. Overlaid lines hide each other and
  * need one shared y-scale that none of the series agree on; a horizon plot
@@ -1184,7 +1289,7 @@ function closeInsp(){ S.selected=null; $('#insp').style.display='none';
  *
  * The ramp is quantised into nine steps deliberately. A smooth gradient looks
  * better in isolation but at 11 px wide adjacent cells are indistinguishable;
- * discrete bands let you count "how many sigma" at a glance, which is the
+ * discrete steps let you count "how many sigma" at a glance, which is the
  * entire job.
  */
 const HEAT_STEPS=[
@@ -1258,9 +1363,9 @@ function heatmapChart(groups){
     }
     const r=it.row;
 
-    // identity swatch: the band's wavelength colour or the index's palette
-    // colour survives on the left, because the cell colour is now devoted to
-    // the anomaly and can no longer encode which series this is.
+    // identity swatch: the index's palette colour survives on the left,
+    // because the cell colour is now devoted to the anomaly and can no
+    // longer encode which series this is.
     g+=`<rect x="4" y="${(it.y+4).toFixed(1)}" width="6" height="6" rx="1.5"
           fill="${r.color}"/>`;
     g+=`<text x="15" y="${(it.y+9.5).toFixed(1)}" fill="#c4ccdd" font-size="9.5">${r.label}</text>`;
@@ -1317,129 +1422,114 @@ function heatmapChart(groups){
   return `<svg class="chart heat" viewBox="0 0 ${W} ${H}">${g}</svg>`+leg;
 }
 
-/* ---- spectrum profile -------------------------------------------------
- * Mean reflectance per band against wavelength. This is the one view in the
- * biography that shows the cell's spectral *shape*: the heatmap above shows
- * each band through time, but never how the bands relate to each other.
+/* ---- seasonal decomposition ------------------------------------------
+ * The biography needs one chart that answers "what is this cell doing?",
+ * while the map layers answer it in aggregate. A trend and a season are two
+ * numbers per cell; drawn together they are the shape of the record:
  *
- * The x axis is logarithmic in wavelength. Blue, green and red sit inside
- * 482-655 nm while the SWIR bands run to 2200; on a linear axis the three
- * visible bands collapse into the first tenth of the plot.
+ *   dots     observed composites, on the same axis as the ribbon above
+ *   solid    fitted level: trend + wet/dry offset
+ *   dashed   the trend with the seasonal offset removed
+ *   red rule the composite with the largest residual
  *
- * The connecting line is an interpolant between band centres, not a measured
- * continuum -- Landsat samples six slices, it does not sweep a spectrometer.
- * That is why the points are drawn heavier than the line, and why the line is
- * the only thing here that is not a measurement.
- *
- * The y axis starts at zero and is not auto-fitted per cell. Fitting to the
- * local range would make a dark-water cell look as bright as a vegetated one,
- * which is exactly the comparison this plot exists to support.
+ * The fit is recomputed here for one cell (fitCell), using the same model as
+ * the export, so the chart can never disagree with the layer that selected
+ * the cell. Gaps stay gaps: a line drawn across a cloud gap would be an
+ * interpolation the data does not support.
  */
-function niceCeil(v){
-  if(!(v>0)) return 1;
-  // Finer steps than the usual 1/2/5 ladder: a 0.32 maximum rounded to 0.5
-  // would waste a third of the plot and squash the range whiskers to nothing.
-  const e=Math.floor(Math.log10(v)), f=v/Math.pow(10,e);
-  const steps=[1,1.2,1.5,2,2.5,3,4,5,6,8,10];
-  const s=steps.find(x=>f<=x)||10;
-  return s*Math.pow(10,e);
-}
+function decompositionChart(values, periods, fit){
+  const W=400, PL=44, PR=12, PT=14, PB=34, H=176;
+  const n=periods.length;
+  if(!n) return '';
+  const seen=[];
+  for(let i=0;i<n;i++) if(isFinite(values[i])) seen.push(i);
+  if(!seen.length)
+    return '<div class="sub" style="margin:6px 0 0">no observed composites to draw</div>';
 
-function spectrumProfile(bands){
-  const W=400, PL=40, PR=13, PT=17, PB=34, H=138;
-  const rows=bands.map(b=>{
-    const vals=b.values.filter(v=>!isMissing(v)&&isFinite(v));
-    if(!vals.length) return null;
-    return {key:b.key, nm:b.nm,
-            mean:vals.reduce((a,x)=>a+x,0)/vals.length,
-            min:Math.min(...vals), max:Math.max(...vals), n:vals.length};
-  }).filter(Boolean);
-  if(rows.length<2)
-    return '<div class="sub" style="margin:6px 0 0">not enough observed bands to draw a profile</div>';
-
-  const useLog=rows.every(r=>r.nm>0);
-  const nms=rows.map(r=>r.nm);
-  const l0=Math.log(Math.min(...nms)), l1=Math.log(Math.max(...nms));
-  const X = useLog
-    ? nm=>PL+(W-PL-PR)*(Math.log(nm)-l0)/Math.max(l1-l0,1e-9)
-    : i=>PL+(W-PL-PR)*(rows.length<2?0.5:i/(rows.length-1));
-  const px=rows.map((r,i)=>useLog?X(r.nm):X(i));
-  const xsOf=(r,i)=>useLog?X(r.nm):X(i);
-
-  const ymax=niceCeil(Math.max(...rows.map(r=>r.max))*1.08);
-  const Y=v=>PT+(H-PT-PB)*(1-v/ymax);
-  const ylab=v=>ymax<=0.05?v.toFixed(3):v.toFixed(2);
-
+  const pool=[];
+  for(const i of seen) pool.push(values[i]);
+  if(fit) for(let i=0;i<n;i++) if(isFinite(fit.fitted[i])) pool.push(fit.fitted[i]);
+  let lo=Math.min(...pool), hi=Math.max(...pool);
+  if(hi-lo<1e-6){ lo-=0.05; hi+=0.05; }
+  const pad=(hi-lo)*0.14;
+  lo-=pad; hi+=pad;
+  const X=i=>PL+(W-PL-PR)*(n>1?i/(n-1):0.5);
+  const Y=v=>PT+(H-PT-PB)*(1-(v-lo)/(hi-lo));
+  const yl=v=>Math.abs(v)>=1?fmt(v,2):fmt(v,3);
   let g='';
 
-  // ---- y grid, from zero so two cells can be compared ----
+  // ---- y grid ----
   [0,0.5,1].forEach(f=>{
-    const v=ymax*f, y=Y(v);
+    const v=lo+(hi-lo)*f, y=Y(v);
     g+=`<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W-PR}" y2="${y.toFixed(1)}"
-          stroke="#2c3242" ${f===0?'':'stroke-dasharray="2 4"'}/>`;
+          stroke="#2c3242" ${f===0||f===1?'':'stroke-dasharray="2 4"'}/>`;
     g+=`<text x="${PL-5}" y="${(y+3).toFixed(1)}" fill="#98a2b8" font-size="8.5"
-          text-anchor="end">${ylab(v)}</text>`;
+          text-anchor="end">${yl(v)}</text>`;
   });
 
-  // Gradient in wavelength order so the line itself carries the band hues --
-  // the same convention as the heatmap swatches, applied continuously.
-  const stops=rows.map((r,i)=>{
-    const t=((px[i]-PL)/(W-PL-PR))*100;
-    return `<stop offset="${clamp(t,0,100).toFixed(1)}%" stop-color="${bandColor(r.key)}"/>`;
-  }).join('');
-  g+=`<defs><linearGradient id="specgrad" x1="0" y1="0" x2="1" y2="0">${stops}</linearGradient></defs>`;
+  // ---- year ticks ----
+  const every=n>16?4:2;
+  for(let i=0;i<n;i+=every){
+    g+=`<text x="${X(i).toFixed(1)}" y="${(H-PB+14).toFixed(1)}" fill="#98a2b8"
+          font-size="8" text-anchor="middle">${periods[i].year}</text>`;
+  }
 
-  // ---- observed range, drawn first so the mean line stays unbroken ----
-  rows.forEach((r,i)=>{
-    const x=px[i], col=bandColor(r.key);
-    const yHi=Y(r.max), yLo=Y(r.min);   // yHi is numerically *smaller*: the
-    if(Math.abs(yHi-yLo)>1.2){          // axis is inverted, so compare the gap
-      g+=`<line x1="${x.toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yLo.toFixed(1)}"
-            stroke="${rgba(col,0.62)}" stroke-width="1.6"/>`;
-      g+=`<line x1="${(x-3.2).toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${(x+3.2).toFixed(1)}" y2="${yHi.toFixed(1)}"
-            stroke="${rgba(col,0.62)}" stroke-width="1.6"/>`;
-      g+=`<line x1="${(x-3.2).toFixed(1)}" y1="${yLo.toFixed(1)}" x2="${(x+3.2).toFixed(1)}" y2="${yLo.toFixed(1)}"
-            stroke="${rgba(col,0.62)}" stroke-width="1.6"/>`;
+  // ---- trend with the season removed: a straight line ----
+  if(fit){
+    const y0=fit.beta[0]+fit.beta[1]*(periods[0].year-fit.my);
+    const y1=fit.beta[0]+fit.beta[1]*(periods[n-1].year-fit.my);
+    g+=`<line x1="${X(0).toFixed(1)}" y1="${Y(y0).toFixed(1)}"
+          x2="${X(n-1).toFixed(1)}" y2="${Y(y1).toFixed(1)}"
+          stroke="#8b93a7" stroke-width="1.4" stroke-dasharray="5 4" opacity="0.85"/>`;
+  }
+
+  // ---- fitted level ----
+  if(fit){
+    let d='', started=false;
+    for(let i=0;i<n;i++){
+      if(!isFinite(fit.fitted[i])) continue;
+      d+=`${started?'L':'M'} ${X(i).toFixed(1)} ${Y(fit.fitted[i]).toFixed(1)} `;
+      started=true;
     }
-  });
+    g+=`<path d="${d.trim()}" fill="none" stroke="#e8b86a" stroke-width="1.7"
+          stroke-linejoin="round" opacity="0.95"/>`;
+  }
 
-  const pts=rows.map((r,i)=>[px[i],Y(r.mean)]);
-  const line=pts.map((p,i)=>`${i?'L':'M'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
-  const base=Y(0).toFixed(1);
-  const area=`M ${pts[0][0].toFixed(1)} ${base} L `+
-    pts.map(p=>`${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' L ')+
-    ` L ${pts[pts.length-1][0].toFixed(1)} ${base} Z`;
-  g+=`<path d="${area}" fill="url(#specgrad)" opacity="0.13"/>`;
-  g+=`<path d="${line}" fill="none" stroke="url(#specgrad)" stroke-width="1.6"
-        stroke-linejoin="round" opacity="0.9"/>`;
+  // ---- observed composites ----
+  for(const i of seen){
+    const zed=fit&&isFinite(fit.sigma)&&fit.sigma>0
+      ? Math.abs(values[i]-fit.fitted[i])/fit.sigma : 0;
+    g+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(values[i]).toFixed(1)}" r="2.6"
+          fill="${zed>3?'#e0715f':'#7fd4a1'}" stroke="#151922" stroke-width="0.8"/>`;
+  }
 
-  rows.forEach((r,i)=>{
-    g+=`<circle cx="${px[i].toFixed(1)}" cy="${Y(r.mean).toFixed(1)}" r="3.4"
-          fill="${bandColor(r.key)}" stroke="#151922" stroke-width="1.4">
-          <title>${bandLabel(r.key)} &middot; mean ${fmt(r.mean,4)} &middot;
-            observed ${fmt(r.min,4)}&ndash;${fmt(r.max,4)} over ${r.n} composites</title></circle>`;
-  });
+  // ---- largest residual ----
+  if(fit && fit.anomIdx>=0 && isFinite(values[fit.anomIdx])){
+    const x=X(fit.anomIdx);
+    g+=`<line x1="${x.toFixed(1)}" y1="${PT}" x2="${x.toFixed(1)}" y2="${(H-PB).toFixed(1)}"
+          stroke="#e0715f" stroke-width="1.1" stroke-dasharray="3 3" opacity="0.9"/>`;
+    g+=`<circle cx="${x.toFixed(1)}" cy="${Y(values[fit.anomIdx]).toFixed(1)}" r="5"
+          fill="none" stroke="#e0715f" stroke-width="1.4"/>`;
+  }
 
-  // ---- wavelength ticks ----
-  rows.forEach((r,i)=>{
-    const x=px[i], anchor=i===0?'start':i===rows.length-1?'end':'middle';
-    g+=`<text x="${x.toFixed(1)}" y="${(H-PB+15).toFixed(1)}" fill="#98a2b8" font-size="8"
-          text-anchor="${anchor}">${r.nm||''}</text>`;
-  });
-  g+=`<text x="${W-PR}" y="${H-4}" fill="#6f7688" font-size="8"
-        text-anchor="end">nm</text>`;
+  // ---- the composite currently on the map ----
+  const i0=S.periodIdx;
+  if(i0>=0&&i0<n){
+    const x=X(i0);
+    g+=`<line x1="${x.toFixed(1)}" y1="${PT}" x2="${x.toFixed(1)}" y2="${(H-PB).toFixed(1)}"
+          stroke="#ffffff" stroke-width="1" opacity="0.55"/>`;
+  }
 
-  // ---- mean values, kept because the heatmap above carries none ----
-  rows.forEach((r,i)=>{
-    const x=px[i], py=Y(r.mean);
-    const anchor=i===0?'start':i===rows.length-1?'end':'middle';
-    const above=py-9>PT+7;
-    g+=`<text x="${x.toFixed(1)}" y="${(py+(above?-8:15)).toFixed(1)}"
-          fill="${bandColor(r.key)}" font-size="8.5" font-weight="600"
-          text-anchor="${anchor}">${fmt(r.mean,3)}</text>`;
-  });
-
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}">${g}</svg>`;
+  const leg=`<div class="heatleg">
+    <i style="background:#7fd4a1;border-radius:50%"></i><span>observed</span>
+    <span class="hlsep"></span>
+    <i style="background:#e8b86a"></i><span>trend + season</span>
+    <span class="hlsep"></span>
+    <i style="background:#8b93a7"></i><span>trend</span>
+    <span class="hlsep"></span>
+    <i style="background:#e0715f"></i><span>largest anomaly</span>
+  </div>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}">${g}</svg>`+leg;
 }
 
 // ---------------------------------------------------------------- controls
@@ -1456,9 +1546,11 @@ function bind(){
     S.mode=e.target.value;
     $('#deltaidxctl').style.display=S.mode==='delta'?'flex':'none';
     $('#stabilityctl').style.display=S.mode==='stability'?'flex':'none';
+    $('#analysisidxctl').style.display=S.mode.startsWith('analysis:')?'flex':'none';
     refreshColours();
   };
   $('#deltaidx').onchange=e=>{S.deltaIdx=e.target.value;refreshColours();};
+  $('#analysisidx').onchange=e=>{S.analysisIdx=e.target.value;refreshColours();};
   $('#stabmetric').onchange=e=>{S.stabMetric=e.target.value;refreshColours();};
   $('#extremesort').onchange=e=>{S.extremeSort=e.target.value;buildExtremes();};
   $('#season').onchange=e=>{
@@ -1471,7 +1563,8 @@ function bind(){
     if(S.selected) renderInspector(S.selected);
   };
   $('#deltaidxctl').style.display='none';
-  $('#stabilityctl').style.display='none';
+  $('#stabilityctl').style.display='flex';
+  $('#analysisidxctl').style.display='none';
   $('#basemap').onclick=()=>{
     S.satellite=!S.satellite;
     $('#basemap').classList.toggle('on',S.satellite);

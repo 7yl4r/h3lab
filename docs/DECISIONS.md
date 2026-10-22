@@ -757,3 +757,84 @@ a localhost `--url-template` all 73 stamped payload URLs resolve 200 from the
 single overview manifest — i.e. the URL-addressed model is proven end to end,
 leaving only repository creation and authentication. The overview-per-year
 split and the bucket both remain open, and both are now data-side changes.
+
+---
+
+## D-32 — The pilot drops reflectance and ships per-cell assessment instead
+*2026-10-22 · accepted · pilot / product*
+
+**Decision.** The Rookery Bay pilot bundle no longer carries the six
+surface-reflectance series, and the viewer no longer offers per-band spectra
+layers. In their place the bundle carries three groups of per-cell fields:
+
+- **stability**, precomputed at export: `cell.stab.angle` and
+  `cell.stab.churn`;
+- **assessment**, one set per index: `cell.trend.<index>`,
+  `cell.trendz.<index>`, `cell.amp.<index>`, `cell.phase.<index>`,
+  `cell.r2.<index>`, `cell.anom.<index>`;
+- **assessment metadata**, exactly recoverable: `cellraw.anomp.<index>`, the
+  period index of the largest anomaly, with `65535` meaning none.
+
+The default layer is spectral stability, on the angle metric. Trend,
+significance, seasonal amplitude, peak season, fit R² and largest anomaly are
+selectable layers, all static over the whole record.
+
+**Why.** The pilot had grown into a combinatorial surface: six indices, six
+reflectance bands, three resolutions and 26 composites, and every one of those
+was a layer or a series in the biography. Most of it was not read. The bands
+existed for exactly one purpose — computing spectral stability in the
+browser — and cost six times the payload of an index to do it. Dropping them
+removes a third of the served bytes (res 8: 0.28 → 0.19 MB; res 9: 1.84 →
+1.23; res 10: 11.88 → 7.91) and removes the only reason the browser needed a
+second data group.
+
+The assessment fields are static, so computing them in the browser was also
+the wrong place: the same fit was redone on every load and every mode change.
+At export they are computed once, quantised with the existing uint16 scheme,
+and shipped as 38 small columns at res 8 (six metrics × six indices, plus the
+two stability fields). The map shading is then a field lookup, not a fit.
+
+**The model.** The fit is the identifiable form of a trend-plus-season
+regression:
+
+    y = a + b (year − mean year) + s · wet
+
+where `wet` is 1 for the wet composite and 0 for the dry one. `b` is the
+trend per year, `|s|/2` is the seasonal amplitude the layer shows, and the
+peak is the season `s` favours: August (month 8) or January (month 1). A free
+annual harmonic, `c cos 2πt + d sin 2πt`, is *rank-deficient* with two
+composites a year: its columns depend on the season alone, so together with
+an intercept they span the same space as the wet/dry indicator. The design
+condition number is ~6e8, and solving its normal equations in double
+precision returned a seasonal amplitude of 0.122 for a synthetic 0.100
+signal. The form above reproduces the synthetic values to machine precision
+and makes the phase limit explicit rather than hiding it: with two samples a
+year the peak resolves to a season, not a date.
+
+Fits need `MIN_FIT_OBS = 8` observed composites. Stability needs two for a
+change and four before its "thin" flag clears; the angle additionally needs
+summed reflectance above 0.10, because Collection 2's −0.2 offset puts dark
+water near the denominator's zero.
+
+**Consequences.**
+
+- `meta.bands` and `meta.band_info` are gone; `meta.analysis` describes the
+  six metrics (key, label, rank direction, display span, palette) so the
+  viewer's controls are generated from the bundle rather than hard-coded.
+- The binary writer treats the band group as optional. `build_block` still
+  writes it when a block has one, so the regional archive
+  (`export_region.py`, `viewer/regional.html`) is unchanged, bands and all.
+- The pilot could not be rebuilt from scenes here — there is no
+  `data/cache/` — so `tools/reanalyze_pilot.py` recomputed the new fields from
+  the *published* bundle using the same `h3lab.analysis` code as the exporter.
+  It is a one-shot migration: once the bands are dropped from a payload they
+  cannot be recovered, so a later change to the model needs a scene rebuild.
+- `tools/test_analysis.py` pins the properties the layers claim (slope,
+  swing, phase, planted anomaly, gaps, thin records, scale-invariant angle),
+  and the viewer's `fitCell` was checked against the Python fit to ~1e-15 on
+  the same synthetic record. The biography re-fits one cell so its chart
+  cannot disagree with the layer that selected it.
+- D-03's "six reflectance bands and six indices" remains true of the regional
+  **archive**; it is no longer the inventory of the pilot **bundle**. D-31 is
+  unaffected: this changes what a pilot payload contains, not where payloads
+  are published.

@@ -124,7 +124,7 @@ their own repository.
 
 | what | where it is published | size |
 |---|---|---|
-| Rookery Bay bundles res 8/9/10 | this repository's Pages site | 13.4 MiB |
+| Rookery Bay bundles res 8/9/10 | this repository's Pages site | 9.3 MiB |
 | the viewer code (pilot, dataset viewer, probe) | this repository's Pages site | 144 KiB |
 | res-7 overview + the index manifest | `h3-overview` | 7.8 MiB |
 | one res-8 region shard, ×72 | `h3-region-<res4 parent>`, one each | 15 KiB–1.3 MiB |
@@ -271,9 +271,16 @@ the cell is stored as no-data rather than given a plausible-looking value.
 ## Spectral indices
 
 **There is no classification anywhere in this pipeline.** No land-cover
-labels, no endmember unmixing, no fractional cover, no hard classes. What the
-bundle contains is six bands of surface reflectance and six ratios of those
-bands, and nothing derived from a model.
+labels, no endmember unmixing, no fractional cover, no hard classes. The pilot
+bundle contains six ratios of the measured bands and, per cell, an assessment
+of how each ratio moved through the record. Nothing is derived from a model
+except that assessment, which is a regression that can be checked against the
+series it came from.
+
+The regional archive still carries the six surface-reflectance bands, because
+it is an archive. The pilot does not: six bands per composite cost six times
+the bytes, and the only layer that needed them — spectral stability — is now
+computed at export time.
 
 That is a deliberate line. A categorical label has to be justified against
 ground truth, and none is wired in here; an uncalibrated endmember library
@@ -317,10 +324,10 @@ was 1.80.
 
 The cost is coverage: ratio indices are unavailable over 13-18% of
 cell-composites, concentrated on open water where the C2 SR values are simply
-too small to form a ratio. Those cells still render normally in the
-reflectance layers. SAVI is barely affected (1.2%) because its denominator
-keeps a `+L` term and so does not cancel -- which is the practical argument
-for keeping it.
+too small to form a ratio. Those cells still render normally in the index
+layers where the ratio is defined. SAVI is barely affected (1.2%) because its
+denominator keeps a `+L` term and so does not cancel -- which is the practical
+argument for keeping it.
 
 ## Running it
 
@@ -390,16 +397,18 @@ static server will not compress anything. Use `--no-gzip` to write plain
 
 | resolution | before (JSON) | after | served | cold load |
 |---|---|---|---|---|
-| res 8 | 1.3 MB | 0.4 MB | 0.3 MB | — |
-| res 9 | 9.0 MB | 2.9 MB | 2.0 MB | **0.63 s** |
-| res 10 | 62.5 MB | 17.1 MB | 11.9 MB | ~0.2 s (warm) |
+| res 8 | 1.3 MB | 0.26 MB | 0.19 MB | — |
+| res 9 | 9.0 MB | 1.78 MB | 1.23 MB | **0.63 s** |
+| res 10 | 62.5 MB | 12.45 MB | 7.91 MB | ~0.2 s (warm) |
 
 Measured stage times on the default view: `fetch 165ms · inflate 93ms ·
 decode 16ms · geometry 3ms · colour 3ms` — about **0.3 s** for res 9, and
-0.9 s from a cold page load. Hexagon outlines are baked into the bundle
-rather than recomputed with the H3 library on every load.
+0.9 s from a cold page load. Those timings were taken before the reflectance
+series were dropped, so they are upper bounds now; the payload is a third
+smaller and the local decode alone is ~11 ms. Hexagon outlines are baked into
+the bundle rather than recomputed with the H3 library on every load.
 
-Everything shrank from 72.7 MB to 14.0 MB served, a 5.2x reduction.
+Everything shrank from 72.7 MB to 9.3 MB served, a 7.8x reduction.
 
 ### Diagnosing a slow load
 
@@ -423,7 +432,7 @@ showing `fetch · inflate · decode · geometry · colour` in milliseconds.
 ### What cannot hang any more
 
 - **Stall detection.** The fetch watchdog keys on *time since last byte*, not
-  total duration, so a legitimately slow 13 MB transfer is never cut off but a
+  total duration, so a legitimately slow 8 MB transfer is never cut off but a
   dead socket is caught in 15 s. A single overall timeout conflates slow with
   stuck, which is the wrong distinction.
 - **Basemap fails open.** Esri tiles are the only outbound dependency. If they
@@ -436,24 +445,23 @@ showing `fetch · inflate · decode · geometry · colour` in milliseconds.
 
 ### The biography heatmap
 
-The biography needs twelve series — six reflectance bands, six indices — across
-26 composites, in a panel about 430 px wide. Overlaid line charts cannot do
-this: none of the series agree on a y-scale, so whatever axis you pick hides
-the others, and the later series sit on top of the earlier ones. Every
-alternative that fits the space trades something away, but they do not trade
-the same things:
+The biography needs six indices across 26 composites in a panel about 430 px
+wide. Overlaid line charts cannot do this: none of the series agree on a
+y-scale, so whatever axis you pick hides the others, and the later series sit
+on top of the earlier ones. Every alternative that fits the space trades
+something away, but they do not trade the same things:
 
 | form | keeps | costs |
 |---|---|---|
 | overlaid lines | path between composites | occlusion, one shared y-scale |
-| small multiples | path and per-series scale | six to twelve axes, more height |
+| small multiples | path and per-series scale | six axes, more height |
 | horizon plot | per-series scale in 28 px | folded magnitude has to be decoded |
 | **heatmap** | per-series scale, no occlusion | continuity between composites |
 
 The heatmap wins on breadth. Matrix position carries the series and the time,
 so nothing is ever hidden behind anything else, and each row is normalised
 against **its own** record mean and standard deviation. That is what makes
-twelve series with ranges from 0.02 to 0.9 comparable without a shared axis.
+six series with ranges from 0.02 to 0.9 comparable without a shared axis.
 
 Normalising by standard deviation rather than per-row min–max is deliberate. A
 min–max scale would give a nearly flat series — SAVI moves about 0.02 across
@@ -463,7 +471,7 @@ everywhere, which is the honest answer.
 
 The ramp is quantised into **nine steps** for the same reason the legend shows
 nine swatches: at 11 px per cell a smooth gradient makes neighbouring cells
-indistinguishable, whereas discrete bands let you count deviations by eye.
+indistinguishable, whereas discrete steps let you count deviations by eye.
 
 Two palette mistakes were obvious the moment it rendered, and both are specific
 to a dark panel:
@@ -491,70 +499,62 @@ anomalous, not what happened between composites, which is why the current
 composite is still printed as exact numbers above it and every cell carries a
 tooltip with its value and deviation.
 
-### The spectral profile
+### The seasonal decomposition
 
-The heatmap normalises each row, which is what makes twelve series comparable
-— and which also throws away every absolute value. The profile is where the
-absolute numbers live, expressed as a shape rather than as a column of six
-means.
+The heatmap normalises each row, which makes the indices comparable and throws
+away absolute values. The decomposition chart is where the cell's own numbers
+live: the same trend and season that shade the map layers, drawn for one cell.
 
-It replaced a panel of six record means, each followed by a 26-segment strip.
-Those strips were pure duplication: segment alpha was `0.18 + 0.82·v/max` and
-heatmap colour was `(v − mean)/sd`, both strictly increasing in the same value,
-so the strips repeated the heatmap's ordering exactly and added no shape
-information of their own. The means did not — nothing else in the panel shows
-absolute reflectance — so they were kept and re-plotted rather than deleted.
+The model is
 
-Three decisions in the plot are deliberate:
+    y = a + b (year - mean year) + s * wet
 
-- **Logarithmic wavelength axis.** Blue, green and red sit inside 482–655 nm
-  while SWIR runs to 2200. On a linear axis the three visible bands collapse
-  into the first tenth of the plot.
-- **The y axis starts at zero and is not fitted to the cell.** Auto-fitting
-  would make a dark-water cell look as bright as a vegetated one, which is
-  precisely the comparison the plot exists to support.
-- **Points heavier than the line.** The line is an interpolant between band
-  centres — Landsat samples six slices, it does not sweep a spectrometer — so
-  the measured marks are what carry weight and the connecting stroke is
-  visibly subordinate. Whiskers show the observed min–max across composites.
+fitted by least squares over every observed composite. `b` is the trend in
+index units per year, `|s|` is the wet-to-dry swing (`|s|/2` is the half-swing
+the layer shows), and the peak month is the centre of the season `s` favours:
+August for a wet peak, January for a dry one.
 
-The axis ceiling uses a finer ladder than the usual 1/2/5 rounding. A 0.32
-maximum rounded to 0.50 wasted a third of the plot and squashed every whisker
-below one pixel.
+**Why not a free annual harmonic?** The obvious model is
+`c cos(2 pi t) + d sin(2 pi t)`. With two composites a year its columns depend
+only on the season, not the year, so together with an intercept they span
+exactly the same space as the wet/dry indicator. A trend plus a free harmonic
+is therefore rank-deficient: the within-year part of the trend and the seasonal
+offset are the same direction, and a fit that does not say so splits the
+difference arbitrarily. The condition number of the design is about 6e8, and
+solving its normal equations in double precision produced a seasonal amplitude
+of 0.122 for a synthetic 0.100 signal. The parameterisation above is the
+identifiable form of the same fit, and it reproduces the synthetic values to
+machine precision.
 
-**A sign error silently removed every whisker.** `Y()` is inverted, so
-`Y(max)` is numerically *smaller* than `Y(min)`; the guard `yHi - yLo > 1.2`
-was therefore always false and drew nothing. The plot looked finished without
-them. Comparing the absolute gap fixed it. This is the same failure mode as the
-others in this file — no exception, just a missing element that only a rendered
-pixel check catches.
+The honest consequence is that the phase cannot be a date. The sampling lands
+on two seasons, so the layer reports which season the peak falls in, drawn as
+August or January, rather than a fitted day.
+
+The chart draws three things on one axis:
+
+- **dots** -- observed composites, red when the residual is beyond 3 sigma;
+- **solid line** -- the fitted trend plus the wet/dry offset;
+- **dashed line** -- the trend with the season removed.
+
+The gap between the solid and dashed lines is the seasonal signal; the slope of
+the dashed line is the trend. The red rule marks the composite with the largest
+residual, which is the closest thing in a 26-composite record to a dateable
+event. Gaps are left as gaps.
 
 ### Chart colours
 
-Series identity is coloured the way spectral plots conventionally are —
-**by the band's own wavelength**, with the visible bands getting their real
-colour and the near-infrared continuing the hue wheel past red:
+Index identity uses a **fixed** palette instead of the map ramps, because the
+ramps cannot separate the indices -- NDWI and MNDWI are both blues, and SAVI
+sits close to NDVI in hue. NDVI is green, NDWI blue, MNDWI violet, NDMI teal,
+NBR red and SAVI yellow. In the heatmap these hues appear only as the small
+swatch beside each row: the cell colour is reserved for the anomaly, which is
+the channel that has to stay legible.
 
-| band | nominal | colour |
-|---|---|---|
-| blue | 482 nm | blue |
-| green | 562 nm | green |
-| red | 655 nm | red |
-| NIR | 865 nm | crimson |
-| SWIR1 | 1610 nm | violet |
-| SWIR2 | 2200 nm | indigo |
-
-The same hue labels each band's heatmap row and tints its strip in the
-mean-reflectance table, so the heatmap, the table and the map legend read as
-one object. Nominal wavelengths live in `config.BAND_INFO` and travel in the
-bundle metadata, so the viewer labels from them rather than duplicating a
-table.
-
-Index identity uses a **fixed** palette instead, because the map ramps cannot
-separate them — NDWI and MNDWI are both blues, and SAVI sits close to NDVI in
-hue. In the heatmap these hues appear only as the small swatch beside each
-row: the cell colour is reserved for the anomaly, which is the channel that
-has to stay legible.
+The assessment layers use their own ramps: a diverging brown-to-teal for trend
+and significance (decline vs increase), a sequential ramp for amplitude,
+anomaly and R2, and a cyclic blue-green-gold-red ramp for the peak month. The
+month ramp wraps deliberately: January and December meet at both ends, and the
+legend says so.
 
 ### Three chart bugs worth remembering
 
@@ -569,8 +569,7 @@ fields are one-dimensional, so they came back empty and `new Array(NaN)` threw
 
 A third was in the inspector: series colours were taken straight from the map
 ramps as RGB triplets and interpolated into `stroke="${color}"`. A triplet is
-not a CSS colour, so the index chart silently rendered black on a dark panel
-while the reflectance chart — which used a hex string — worked fine. Index
+not a CSS colour, so the chart silently rendered black on a dark panel. Index
 chart colours are now a fixed, hand-spaced palette, because NDWI and MNDWI are
 both blues and ramp midpoints are not separable. A related trap: `.rseg` has a
 fixed height, so setting a smaller height on the ribbon container did nothing
@@ -582,42 +581,67 @@ code.
 Two more things matter for feel rather than size:
 
 - **Values dequantise lazily, one field at a time.** Opening a block is a
-  header parse; the ~2 MB `Float32Array` per field is built the first time that
-  field is needed, so switching colour mode costs one field, not fifteen.
-- **The loader never hangs.** A 120 s `AbortController` timeout, a live
-  byte-progress readout, and an error that names the fix. Missing-value
-  handling moved from JSON `null` to `NaN`, and every guard that tested
-  `== null` was rewritten — a `null` test silently passes on `NaN`, which would
-  have painted missing data as if it were real.
+  header parse; a `Float32Array` is built the first time that field is needed,
+  so switching colour mode costs one field rather than every field.
+- **The loader never hangs.** A stall watchdog (15 s without a byte, with a
+  5 min hard cap), a live byte-progress readout, and an error that names the
+  fix. Missing-value handling moved from JSON `null` to `NaN`, and every guard
+  that tested `== null` was rewritten — a `null` test silently passes on
+  `NaN`, which would have painted missing data as if it were real.
 
 ### Verifying a rebuild
 
-`cls`, `observed` and `nObs` are stored as raw integers, so they must be
-byte-exact against the caches. The float fields are quantised, with a measured
-worst-case error of **1.6e-5** across all 26 periods — one quarter of a
-quantisation step.
+`observed`, `nObs` and `cellraw.anomp.*` are stored as raw integers, so they
+must be exact against the source arrays. The float fields are quantised, with
+a measured worst-case error of **1.6e-5** across all 26 periods — one quarter
+of a quantisation step.
 
-After changing anything in `features.py` or `binary.py`, re-run the export and
-check the *artifact on disk*, not just the format in memory. That distinction
-caught a real bug here: an early `.bin.gz` had `cls` collapsed through
-`int(bool(...))`, which survived a format-level round-trip test because that
-test rebuilt the encoder rather than reading the shipped file.
+After changing anything in `features.py`, `analysis.py` or `binary.py`,
+re-run the export and check the *artifact on disk*, not just the format in
+memory. That distinction caught a real bug here: an early `.bin.gz` had a raw
+integer field collapsed through `int(bool(...))`, which survived a
+format-level round-trip test because that test rebuilt the encoder rather than
+reading the shipped file.
 
 The viewer has:
 
 - **year/season scrubber** with a play button and Hurricane Irma / Ian markers
 - **resolution switcher** — geometry is rebuilt and re-fitted per resolution
-- **colour modes** — any index, any band's reflectance, change-versus-baseline,
-  or spectral stability
+- **colour modes** — spectral stability (the default), six whole-record
+  assessment layers, any index, or change-versus-baseline
 - **spectral stability** layer, with two metrics (below)
-- **rank cells by** panel — largest index change, most settled, least
-  settled, or most churning. Every entry is clickable.
+- **rank cells by** panel — the current layer, the most churning greenness,
+  or the most settled spectra. Every entry is clickable.
 - **the biography panel** — an NDVI ribbon across the whole record, a heatmap
-  of every band and index through time (below), a spectral profile of the
-  cell's mean reflectance by wavelength, observation counts, and a written
-  one-paragraph summary of what happened to that cell and when
+  of every index through time (below), the cell's own trend-and-season
+  decomposition (below), observation counts, and a written summary of what
+  happened to that cell and when
 
 Click a hexagon on the map, or click any entry in the swings panel.
+
+### Assessment layers
+
+Six layers summarise the record rather than one composite. They are static:
+scrubbing the timeline does not change them, because a fit over 2013-2025 is
+not a property of the composite on screen.
+
+| layer | what it shows | display span |
+|---|---|---|
+| trend | least-squares slope per year | ±0.015 /yr |
+| trend significance | slope divided by its standard error | ±4σ |
+| seasonal amplitude | half the fitted wet-to-dry swing | 0-0.25 |
+| seasonal peak | which season the swing peaks in (August or January) | Jan-Dec, cyclic |
+| seasonal fit R² | share of the record explained by trend and season | 0-1 |
+| largest anomaly | largest residual, in the cell's own σ | 0-4σ |
+
+All six are per index, selected with the **index** control; each is a column in
+the bundle (`cell.trend.ndvi`, `cell.stab.angle`, ...), not something derived
+in the browser. The one field that is not a float is
+`cellraw.anomp.<index>`, the period index of the largest anomaly (65535 for
+none), so the date survives the quantiser exactly.
+
+The model and its identifiability are covered in [The seasonal
+decomposition](#the-seasonal-decomposition).
 
 ### Spectral stability
 
@@ -631,13 +655,17 @@ Two metrics, both measured on the measurements rather than on derived labels:
 They answer different questions. A cell can double in reflectance without its
 spectrum rotating: churn notices, angle does not. Conversely a small
 reallocation between green and NIR leaves overall brightness almost unchanged
-while the spectral shape moves. Both are derived in the browser from arrays
-already resident, so no bundle rebuild is involved.
+while the spectral shape moves. Both are computed once at export
+(`h3lab.analysis`) and shipped as two per-cell fields. They used to be derived
+in the browser from the band vectors, which was the only reason the pilot had
+to ship six reflectance bands at all.
 
 Two guards, because both would otherwise mislead:
 
-- **Cells observed in fewer than 4 composites are left blank**, not scored. A
-  stability estimate from two composites is not a stability estimate.
+- **A cell observed fewer than twice is blank**, not scored: a change between
+  consecutive composites needs two. Cells with fewer than four are scored but
+  flagged as *thin* in the biography, where the number can be read next to its
+  sample size.
 - **Spectral angle needs a brightness floor.** The Collection 2 offset drives
   open water near zero, where the denominator in `cos(angle)` collapses and
   tiny differences swing the result wildly — an angle of 24.9° on a dark cell
@@ -664,12 +692,12 @@ pill under the toolbar.
 
 ## Repository layout and what is tracked
 
-Tracked, 14 MB total:
+Tracked, 10 MB total:
 
 ```
 src/h3lab/*.py        the pipeline
 viewer/*.html         pilot, dataset viewer, redirect, load probe; no build step
-data/*.bin.gz         the Rookery Bay pilot bundle, 13.4 MB
+data/*.bin.gz         the Rookery Bay pilot bundle, 9.3 MB
 data/*_meta.json      its index, 1.5 kB
 tools/                verification, publication and measurement scripts
 requirements.txt      pinned direct dependencies
@@ -686,11 +714,12 @@ data/cache_regional/ per-cell composite and change caches
 dist/            staged dataset repositories awaiting a push
 ```
 
-The pilot bundle is derived, but tracking it is deliberate: at 13.4 MB it uses
-13% of GitHub's 100 MB per-file ceiling, and it means a fresh clone opens the
-Rookery Bay viewer immediately instead of running a one-hour network-dependent
-pipeline first. The *regional* archive is not tracked for the opposite reason:
-it is 73 datasets, and 73 datasets are 73 repositories (D-31).
+The pilot bundle is derived, but tracking it is deliberate: at 9.3 MB (7.9 MB
+in its largest file) it uses 8% of GitHub's 100 MB per-file ceiling, and it
+means a fresh clone opens the Rookery Bay viewer immediately instead of
+running a one-hour network-dependent pipeline first. The *regional* archive is
+not tracked for the opposite reason: it is 73 datasets, and 73 datasets are 73
+repositories (D-31).
 
 ### Why the bundle is safe to commit
 
@@ -732,9 +761,9 @@ serve.sh         serve over HTTP (fetch() is blocked on file://)
 tools/publish_datasets.py   split a build into one repository per dataset
 data/cache/     78 per-composite .npz files (gitignored)
 data/rookery_bay_h3_meta.json    index: bbox, palette, events, block filenames
-data/rookery_bay_h3_res8.bin.gz  421 cells x 26 periods,  0.3 MB served
-data/rookery_bay_h3_res9.bin.gz  2,944 cells x 26 periods,  2.0 MB served
-data/rookery_bay_h3_res10.bin.gz 20,607 cells x 26 periods, 11.9 MB served
+data/rookery_bay_h3_res8.bin.gz  421 cells x 26 periods,  0.19 MB served
+data/rookery_bay_h3_res9.bin.gz  2,944 cells x 26 periods,  1.23 MB served
+data/rookery_bay_h3_res10.bin.gz 20,607 cells x 26 periods, 7.91 MB served
 data/regional/     the South Florida build (gitignored, split into repos)
 data/mosaic_cache/ the 30 m mosaic cache, 15.3 GB for 2017 (gitignored)
 dist/              staged dataset repositories (gitignored)
@@ -788,10 +817,10 @@ about rather than working around.
 
 ## Honest limitations
 
-- **No land cover is produced.** Six bands and six ratios are not enough to
-  say "mangrove"; they are enough to say "this spectrum moved this much, in
-  these bands, between these composites". Any cover-type claim needs a layer
-  above this.
+- **No land cover is produced.** Six measured bands and six ratios are not
+  enough to say "mangrove"; they are enough to say "this spectrum moved this
+  much, in these bands, between these composites". Any cover-type claim needs
+  a layer above this.
 - Ratio indices are missing over 13-18% of cell-composites (dark water, where
   Collection 2 SR is too small to form a ratio). This is a property of the
   product, not a gap in the archive.
