@@ -15,14 +15,15 @@ html,body{margin:0;background:var(--bg);color:var(--fg);
 body{padding:48px 24px 64px}
 main{max-width:920px;margin:0 auto}
 h1{font-size:30px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px}
-.sub{color:var(--muted);margin:0 0 40px;max-width:60ch}
+.sub{color:var(--muted);margin:0 0 40px;max-width:62ch}
 h2{font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
   color:var(--muted);margin:44px 0 14px}
 .cards{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
-a.card{display:block;text-decoration:none;color:inherit;background:var(--panel);
-  border:1px solid var(--line);border-radius:10px;padding:22px 22px 18px;
-  transition:border-color .15s,transform .15s}
+a.card,div.card{display:block;text-decoration:none;color:inherit;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;padding:22px 22px 18px}
+a.card{transition:border-color .15s,transform .15s}
 a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+div.card.pending{opacity:.62}
 .card h3{margin:0 0 4px;font-size:18px;font-weight:600}
 .card .where{color:var(--accent);font-size:12px;letter-spacing:.04em;margin-bottom:12px}
 .card p{margin:0 0 14px;color:var(--muted);font-size:13px}
@@ -38,6 +39,10 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
   border-radius:6px;padding:14px 18px;font-size:13px;color:var(--muted)}
 .note b{color:var(--fg)}
 code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--accent)}
+.status{font-size:11.5px;margin-top:10px;color:var(--muted)}
+.status.live{color:var(--accent)}
+.status.off{color:var(--warn)}
+.empty{color:var(--muted);font-size:13px}
 footer{margin-top:44px;color:var(--muted);font-size:12px}
 footer a{color:var(--accent);text-decoration:none}
 </style>
@@ -47,61 +52,52 @@ footer a{color:var(--accent);text-decoration:none}
 
   <h1>h3lab</h1>
   <p class="sub">Surface-reflectance time series on an H3 hexagon grid, built from
-  Landsat Collection 2 Level-2 and served as static binary blocks.
-  Two viewers, two scales: a thirteen-year site record at Rookery Bay, and a
-  one-year regional slice across South Florida.</p>
+  Landsat Collection 2 Level-2 and served as static binary blocks. This site is
+  the Rookery Bay record and the viewer code that reads any dataset; each
+  regional shard is published from its own repository.</p>
 
-  <h2>Viewers</h2>
+  <h2>Rookery Bay</h2>
   <div class="cards">
-
-    <a class="card" href="regional.html">
-      <h3>South Florida regional</h3>
-      <div class="where">2017 &middot; res 7 overview + res 8 shards</div>
-      <p>Twenty-three continuous 16-day bins over ~87,000 km&sup2;. The res-7
-      overview loads first; res-8 region shards load on demand as you move.
-      Includes the change-point layer and Hurricane Irma (10 Sep 2017).</p>
-      <dl>
-        <dt>cells</dt><dd>18,115 res 7 / 128,236 res 8</dd>
-        <dt>shards</dt><dd>72 regions + 1 overview</dd>
-        <dt>scenes</dt><dd>383 (Landsat 7 + 8)</dd>
-        <dt>cold load</dt><dd>&lt; 0.5 s</dd>
-      </dl>
-    </a>
-
     <a class="card" href="pilot.html">
       <h3>Rookery Bay pilot</h3>
       <div class="where">2013&ndash;2025 &middot; res 8, 9, 10</div>
       <p>A single site, thirteen years, three resolutions from the same
       composite. Wet and dry season composites, every spectral index, and
-      the cell inspector behind the hexagon biographies.</p>
+      the cell inspector behind the hexagon biographies. The bundles live in
+      this repository.</p>
       <dl>
         <dt>record</dt><dd>13 years, 26 periods</dd>
-        <dt>resolutions</dt><dd>8, 9, 10</dd>
         <dt>cells</dt><dd>421 / 2,944 / 20,607</dd>
+        <dt>served</dt><dd>13.4 MiB</dd>
         <dt>source</dt><dd>Landsat 8 + 9</dd>
       </dl>
     </a>
-
   </div>
 
-  <h2>What is actually served</h2>
+  <h2>Regional datasets</h2>
+  <p class="sub" style="margin-bottom:14px">Each entry is an overview repository:
+  its <code>manifest.json</code> names every region shard by URL, and the shards
+  are separate repositories. Nothing below is stored in this one.</p>
+  <div class="cards" id="datasets"><p class="empty">loading&hellip;</p></div>
+
+  <h2>What is served, and from where</h2>
   <table>
     <thead><tr><th>thing</th><th class="n">bytes</th><th>where it lives</th></tr></thead>
     <tbody>
-      <tr><td>regional archive, 2017</td><td class="n">61.6 MiB</td><td>this site</td></tr>
-      <tr><td>pilot bundles, res 8/9/10</td><td class="n">13.4 MiB</td><td>this site</td></tr>
+      <tr><td>Rookery Bay bundles, res 8/9/10</td><td class="n">13.4 MiB</td><td>this repository</td></tr>
+      <tr><td>regional overview, one AOI-year</td><td class="n">7.8 MiB</td><td>the overview repository</td></tr>
+      <tr><td>one regional shard</td><td class="n">15 KiB&ndash;1.3 MiB</td><td>its own repository</td></tr>
       <tr><td>per-bin 30 m mosaic cache</td><td class="n">15.3 GiB</td><td>build machine only</td></tr>
       <tr><td>per-cell composite cache</td><td class="n">70.4 MiB</td><td>build machine only</td></tr>
     </tbody>
   </table>
   <br />
   <div class="note">
-    <b>The caches are not published, and cannot be.</b> The mosaic cache is
-    664 MB per 16-day bin &mdash; 15.3 GB for 2017 alone and ~406 GB for the
-    full 2000&ndash;2026 record. It is a build accelerator, not the product:
-    the archive the viewers read is 1.7 GB for the whole record, and the
-    build regenerates the cache on demand. See
-    <code>docs/DESIGN.md</code> &sect;7.1 and decision D-29.
+    <b>The caches are never published.</b> The mosaic cache is 664 MB per
+    16-day bin &mdash; 15.3 GB for 2017 and ~406 GB for the full record. It is a
+    build accelerator, not the product; the archive the viewers read is
+    1.7 GB for the whole record, split across one repository per shard.
+    See <code>docs/DESIGN.md</code> &sect;7.1a and decisions D-29&ndash;D-31.
   </div>
 
   <footer>
@@ -112,5 +108,61 @@ footer a{color:var(--accent);text-decoration:none}
   </footer>
 
 </main>
+
+<script>
+// The regional list is data, not markup: adding a region is one entry in
+// datasets.json. Each entry is probed so the page can say whether the
+// overview repository is actually published yet instead of offering a
+// link that dead-ends.
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function card(d){
+  const href = 'regional.html?manifest=' + encodeURIComponent(d.manifest);
+  let host = d.manifest;
+  try { host = new URL(d.manifest).host + new URL(d.manifest).pathname.replace(/\/[^/]*$/, ''); } catch (e) {}
+  return `<a class="card" href="${esc(href)}" data-manifest="${esc(d.manifest)}">
+    <h3>${esc(d.name)}</h3>
+    <div class="where">${esc(d.years || '')}${d.years ? ' &middot; ' : ''}${esc(d.detail || '')}</div>
+    <dl>
+      <dt>manifest</dt><dd>${esc(host)}</dd>
+      <dt>data</dt><dd>separate repositories</dd>
+    </dl>
+    <div class="status">checking&hellip;</div>
+  </a>`;
+}
+
+function probe(cardEl){
+  const url = cardEl.dataset.manifest;
+  const status = cardEl.querySelector('.status');
+  fetch(url, {method:'HEAD', cache:'no-store'})
+    .then(r => {
+      if (r.ok) { status.textContent = 'published'; status.className = 'status live'; }
+      else { throw new Error('HTTP ' + r.status); }
+    })
+    .catch(err => {
+      status.textContent = 'not published yet (' + err.message + ')';
+      status.className = 'status off';
+      cardEl.classList.add('pending');
+    });
+}
+
+fetch('datasets.json', {cache:'no-store'})
+  .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  .then(d => {
+    const list = document.getElementById('datasets');
+    const items = d.datasets || [];
+    if (!items.length) {
+      list.innerHTML = '<p class="empty">No regional datasets are published yet. ' +
+        'Add one to <code>viewer/datasets.json</code>.</p>';
+      return;
+    }
+    list.innerHTML = items.map(card).join('');
+    list.querySelectorAll('a.card').forEach(probe);
+  })
+  .catch(err => {
+    document.getElementById('datasets').innerHTML =
+      '<p class="empty">could not read datasets.json (' + esc(err.message) + ')</p>';
+  });
+</script>
 </body>
 </html>

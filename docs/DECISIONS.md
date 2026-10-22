@@ -596,6 +596,13 @@ the network.
 ## D-30 — Publish the archive, not the caches; gate the deploy on the size budget
 *2026-10-22 · accepted · engineering*
 
+> **Superseded in part by D-31.** The cache-vs-product split, the size gate
+> and the overflow reasoning below still hold. The *topology* — one published
+> site holding the pilot and the whole regional archive — does not: the archive
+> is now one repository per dataset. The 75.1 MiB and 14.4-year figures are the
+> single-repository arithmetic this decision replaced and are kept as the
+> record of why the split was made.
+
 **Decision.** The archive exports are tracked in git and the viewers are
 served as a GitHub Pages site. The build caches (`data/mosaic_cache/`,
 `data/cache_regional/`) stay gitignored and are never published. The Pages
@@ -657,3 +664,94 @@ network against the 3 s budget. The one thing the workflow could not do
 itself was create the Pages site — that needs repository admin, and
 `actions/configure-pages` returned 403 until the setting was flipped by
 hand. Worth knowing for any other repository adopting this workflow.
+
+---
+
+## D-31 — One repository per dataset; h3lab is the Rookery Bay record
+*2026-10-22 · accepted · architecture*
+
+**Decision.** The unit of publication is the **dataset**, not the build and not
+the AOI. A regional build is split into:
+
+- `h3-overview` — the res-7 overview **and** `manifest.json`, which is the
+  index: every region repository and the absolute URL of every payload;
+- `h3-region-<res4 parent>` — one repository per res-8 region shard, 72 of them
+  for South Florida 2017.
+
+`h3lab` itself publishes only the Rookery Bay pilot, the viewer code and
+`viewer/datasets.json`, a catalog of regional overview repositories. Other
+AOIs get their own overview and region repositories later; an overview "might
+differ" from the regional ones, so the catalog addresses an overview by its
+manifest URL rather than assuming a shape.
+
+**Why.** The previous topology (D-30) put 75.1 MiB of archive, 73 datasets and
+the pilot in one repository and one Pages site. Three problems followed, and
+none of them is about total bytes:
+
+1. **History.** A shard carries every period, so adding a year rewrites all 74
+   files in one commit. Git history grew quadratically while the working tree
+   grew linearly. Per dataset, a year rewrites one payload per repository, so
+   each history is linear in years.
+2. **A shared ceiling.** GitHub's 1 GB site limit applied to the sum of all
+   regions, so the largest region decided what the smallest could store, and
+   growing any one region forced a global re-plan. Per repository it applies
+   to one dataset, which leaves 122 years of headroom for the largest.
+3. **Coupling.** Rebuilding one shard touched the repository everyone clones.
+   Now it touches only the dataset being rebuilt.
+
+**Addressing is a template.** Payloads are not paths relative to the viewer.
+The publisher stamps `manifest.overview.url` and `manifest.regions[].url` from
+`--url-template`, default
+`https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{file}`. The viewer
+resolves `e.url || BASE + e.file`, so:
+
+- a local, unstamped build (`data/regional/manifest.json`, payloads adjacent)
+  still works and is still what a rebuild produces byte-for-byte;
+- a published manifest never assumes same-origin;
+- a Google Cloud bucket is the same command with
+  `--url-template 'https://storage.googleapis.com/<bucket>/{repo}/{file}'`.
+
+`raw.githubusercontent.com` returns `access-control-allow-origin: *` and
+`application/octet-stream` (verified by HEAD), so shard repositories need no
+per-repository Pages enablement. If a dataset is later served from Pages, the
+only change is its URL in the template output.
+
+**Measured limits, per repository.** From the 2017 build (payload
+64,544,937 B; overview 348.6 KiB/bin; largest shard 54.1 KiB/bin):
+
+| limit | applies to | headroom |
+|---|---|---|
+| 1 GB published site | h3lab's site, 13.5 MiB | 1.4 % used |
+| 100 MB per file | `overview_res7.bin.gz` | 257 bins — **11.3 years** |
+| 100 MB per file | largest region shard | 1,781 bins — 78 years |
+| 1 GB per repository | largest dataset repo, 7.8 MiB | 2,779 bins — 122 years |
+
+The overview is still the binding file and still for D-21's reason: it is one
+unsharded bundle scaling as `cells × periods` and is 72× larger than a shard.
+Splitting it by year remains the Phase 2 fix (D-30). What the split changes is
+that the overview's limit is now its own: it no longer caps the regions.
+
+**Consequences.**
+
+- `data/regional/` is gitignored build output again. It is the *input* to
+  publication, not the published thing. Removing it from git also removes it
+  from the Pages site, which is why the landing page went dataset-driven.
+- The viewer takes `?manifest=<url>`; `viewer/index.html` reads
+  `viewer/datasets.json`, probes each manifest with `HEAD`, and renders an
+  unpublished dataset as "not published yet" instead of dead-ending.
+- The publisher (`tools/publish_datasets.py`) copies payloads unchanged and
+  writes a `dataset.json` and `README.md` per repository, so the build stays
+  byte-identical and a repository makes sense when opened on its own. It
+  refuses to create repositories: `--emit-create` writes the `gh repo create`
+  script and `--push` pushes staged trees, because creation needs a token and
+  has a blast radius a build should not have.
+- Repository count grows with regions, never with years: 73 today, +72 per new
+  AOI. That is the real cost of this decision and it is accepted deliberately.
+
+**What is not built.** The 73 repositories do not exist on GitHub yet, and the
+build hosts here have neither `gh` nor a token, so nothing has been pushed.
+What *is* verified: the split stages 73 trees (61.6 MiB of payload), and with
+a localhost `--url-template` all 73 stamped payload URLs resolve 200 from the
+single overview manifest — i.e. the URL-addressed model is proven end to end,
+leaving only repository creation and authentication. The overview-per-year
+split and the bucket both remain open, and both are now data-side changes.

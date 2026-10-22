@@ -1,28 +1,29 @@
 name: pages
 
-# Publish the viewers and the archive they read to GitHub Pages.
+# Publish this repository's site: the Rookery Bay viewer, the viewer code, and
+# the small catalog of regional datasets that live in *other* repositories.
 #
-# What goes on the site is *only* the viewable archive:
+# What goes on the site:
 #
-#   viewer/*.html            the two viewers + the landing page
-#   data/regional/           the res-7 overview, the 72 res-8 shards, the manifest
+#   viewer/*.html            the landing page, the pilot viewer, the dataset viewer
+#   viewer/datasets.json     the catalog of regional overview repositories
 #   data/rookery_bay_h3_*    the three pilot bundles
 #
-# What does not, and must not: data/mosaic_cache/ (15.3 GB for 2017 alone) and
-# data/cache_regional/ (70 MB of npz). They are build accelerators, they are
-# gitignored, and they would blow the 1 GB published-site limit on their own.
-# See docs/DESIGN.md §7.1 and D-29/D-30.
+# What does not, and must not:
 #
-# The size budget runs before the upload, so a record that outgrew GitHub Pages
-# fails the deploy instead of publishing a truncated site. Run it locally with
-#   python tools/measure/site_budget.py site --check
+#   data/regional/           the regional build output -- split into one repo
+#                            per dataset by tools/publish_datasets.py (D-31)
+#   data/mosaic_cache/       15.3 GB for 2017 alone (D-29)
+#   data/cache_regional/     70 MB of npz
+#
+# The size budget still runs before the upload: it is cheap, and it catches the
+# case where someone re-adds an archive to this repo.
 
 on:
   push:
     branches: [main]
     paths:
       - "viewer/**"
-      - "data/regional/**"
       - "data/rookery_bay_h3_*"
       - "tools/measure/site_budget.py"
       - ".github/workflows/pages.yml"
@@ -46,9 +47,8 @@ jobs:
       - name: Assemble the site
         run: |
           set -euo pipefail
-          mkdir -p site/viewer site/data/regional
-          cp viewer/*.html site/viewer/
-          cp data/regional/* site/data/regional/
+          mkdir -p site/viewer site/data
+          cp viewer/*.html viewer/*.json site/viewer/
           cp data/rookery_bay_h3_res*.bin.gz site/data/
           cp data/rookery_bay_h3_meta.json site/data/
           printf '%s\n' \
@@ -60,7 +60,7 @@ jobs:
           find site -type f | wc -l
 
       - name: Check the Pages size budget
-        run: python3 tools/measure/site_budget.py site --check
+        run: python3 tools/measure/site_budget.py --site site --check
 
       - uses: actions/configure-pages@v5
         with:

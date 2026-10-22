@@ -482,59 +482,91 @@ covers **one year of the cache**, not the record. Two consequences:
 The mosaic is worth keeping for the years being worked on. It is not worth
 keeping for the whole record unless the machine has the disk.
 
-### 7.1a Hosting: what the published site is
+### 7.1a Publication: one repository per dataset
 
-The viewers are static files and the archive is static files, so the whole
-thing is a GitHub Pages site — there is no server in the read path. The site
-is **75.1 MiB** today: 61.6 MiB of regional archive (overview + 72 shards +
-manifest) and 13.4 MiB of pilot bundles. The mosaic cache (15.3 GiB) and the
-npz composite cache (70.4 MiB) are deliberately *not* published; they are
-build accelerators and the pipeline regenerates them.
+The unit of publication is a **dataset**, not this repository (D-31). A build
+under `data/regional/` covers a whole AOI at once -- one res-7 overview, one
+manifest, 72 res-8 region shards -- and that is the wrong thing to publish:
 
-That size is comfortable, but it is not constant, and two of GitHub's limits
-are on a trajectory to meet it. Measured per bin from the 2017 build
-(2.7 MiB per bin, of which the overview is 349 KiB and the largest shard
-54 KiB):
+* it puts 73 datasets in one git history, so adding a year rewrites all 74
+  files and the history grows quadratically while the working tree grows
+  linearly;
+* it makes one repository's 1 GB site limit hold the entire archive, so the
+  largest region decides what the smallest can store;
+* it couples unrelated rebuilds. Re-running one shard touches the repository
+  that everyone clones.
 
-| limit | binding file | reached at |
+So `h3lab` publishes the Rookery Bay record and the viewer code, and the
+regional archive is split by `tools/publish_datasets.py` into one repository
+per dataset:
+
+| what | repository | payload |
 |---|---|---|
-| 1 GB published site | the whole archive | 328 more bins — **14.4 years** |
-| 100 MB per file | `overview_res7.bin.gz` | 257 more bins — **11.3 years** |
-| 100 MB per file | largest res-8 shard | 1,781 bins — 78 years |
-| 100 GB/month bandwidth (soft) | res-7 overview per cold load | ~12,200 loads/month |
+| Rookery Bay pilot, res 8/9/10 | this one, `7yl4r/h3lab` | 13.4 MiB |
+| viewer code + `viewer/datasets.json` | this one | 60 KiB |
+| res-7 overview **and the index manifest** | `h3-overview` | 7.8 MiB |
+| one res-8 region shard, x72 | `h3-region-<res4 parent>` | 15 KiB-1.3 MiB |
 
-**The overview is the file that breaks first, and that is a direct
-consequence of D-21.** Making the res-7 overview one unsharded bundle keeps
-cold load to a single fetch (and the 3 s budget comfortable), and its cost is
-that it carries every cell for every period: it scales as `cells × periods`,
-while each shard scales as `cells_in_shard × periods` and is 72× smaller.
-Past ~11 years the overview has to be split by year. Doing that also fixes a
-second, quieter problem: because a shard holds every period, adding a year
-rewrites all 74 files, so git history grows quadratically even though the
-working tree grows linearly. Per-year payloads make each year's files
-immutable and the history linear.
+The overview repository is also the index: its `manifest.json` names every
+region repository and the absolute URL of every payload. A viewer therefore
+needs exactly one URL to start, which is what makes "each shard is its own
+repository" compatible with a cold load that is still one fetch plus the
+shards on screen. Each repository also carries a `dataset.json` describing its
+own payload, so it makes sense when opened directly.
 
-`tools/measure/site_budget.py` measures all of the above against a site tree
-and `--check` fails on either limit; `.github/workflows/pages.yml` runs it
-before every deploy, so a record that outgrew GitHub Pages fails the build
-rather than publishing a truncated site (D-30).
+**Addressing is a template, not a location.** The publisher stamps
+`manifest.overview.url` and `manifest.regions[].url`:
 
-The deployed prototype is `https://tylar.info/h3lab/` (project site on the
-user site's custom domain; the `github.io` name redirects). Measured from
-outside: 74 archive files all 200, nothing outside the assembled `site/` tree
-reachable, and a 698 ms cold load of the res-7 overview over the network —
-the local-server figure is 441 ms, so transit is the difference and parsing
-is not the constraint.
+```
+https://raw.githubusercontent.com/7yl4r/{repo}/{ref}/{file}
+```
 
-**Overflow path.** When the record outgrows the per-file or site limit, the
-agreed move is an object store (a Google Cloud bucket) for `data/regional/`,
-with the site keeping only the HTML. This is cheap because the read path has
-exactly one place that knows where the data lives — `BASE` in
-`viewer/regional.html` (and `STEM` in `viewer/pilot.html`). Nothing else
-assumes same-origin, so the switch is an absolute URL plus a CORS policy on
-the bucket; the manifest and block format do not change. Splitting the
-overview by year remains the fix that keeps everything on Pages, and the two
-are compatible: the bucket simply holds the per-year files.
+The viewer resolves `e.url || BASE + e.file`, so an unstamped local build
+(`data/regional/manifest.json`, payloads adjacent) keeps working and a stamped
+published manifest never assumes same-origin. `raw.githubusercontent.com`
+returns `access-control-allow-origin: *` and `application/octet-stream`, so no
+per-repository Pages enablement is needed. A Google Cloud bucket is the same
+command with `--url-template 'https://storage.googleapis.com/<bucket>/{repo}/{file}'`
+-- the manifests are otherwise identical. This is the overflow path D-30
+anticipated, now reduced to a CORS policy and a template.
+
+**Which limit binds now.** GitHub's published limits apply *per repository*,
+so the arithmetic is no longer "the archive against 1 GB" but "one dataset
+against 1 GB". Measured from the 2017 build (payload 64,544,937 B; overview
+348.6 KiB per bin; largest shard 54.1 KiB per bin):
+
+| limit | applies to | measured headroom |
+|---|---|---|
+| 1 GB per published site | this repository's site, 13.5 MiB | 1.4 % used |
+| 100 MB per file | `overview_res7.bin.gz` | 257 more bins -- **11.3 years** |
+| 100 MB per file | largest region shard | 1,781 bins -- 78 years |
+| 1 GB per repository | largest dataset repository, 7.8 MiB | 2,779 bins -- 122 years |
+
+The overview is still the file that breaks first, and still for the same
+structural reason: D-21 made it one unsharded bundle, so it carries every cell
+for every period and is 72x larger than any shard. Splitting it by year remains
+the fix that buys the next decade (D-30). What the per-dataset split removes is
+the *global* ceiling: a region that grows large can be handled on its own,
+because it no longer shares a repository or a published site with the other 71.
+
+History grows the same way: a dataset repository rewrites one payload per added
+year, so its history is linear in years. Monitoring is per dataset --
+`tools/measure/site_budget.py --archive data/regional` reports the split and
+`--site site` the Pages site; the workflow runs the latter with `--check`, so a
+record that outgrew this site fails the build rather than publishing truncated.
+
+**Operational cost, stated plainly.** 73 repositories to create and own, +72
+for each new AOI. `tools/publish_datasets.py --emit-create` writes the
+`gh repo create` script and `--push` pushes the staged trees; creation is kept
+a separate, explicit act because it needs a token and has a blast radius that a
+build should not have. The count grows with regions, never with years.
+
+The site itself is `https://tylar.info/h3lab/` (project site on the user site's
+custom domain; the `github.io` name redirects). The Pages switch is already
+flipped for this repository. The regional datasets are **not published yet**:
+`viewer/datasets.json` lists the intended overview manifest, the landing page
+probes it with `HEAD`, and an unpublished entry is rendered as "not published
+yet" rather than as a dead link. Publishing is the `--dist` / `--push` step.
 
 ### 7.2 Compute ranking
 

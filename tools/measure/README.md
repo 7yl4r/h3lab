@@ -19,7 +19,7 @@ PYTHONPATH=src python -m h3lab.run --regional --year 2017 --resolutions 7,8
 | `harmonics_probe.py` | whether a better seasonal fit (3 harmonics) removes the excess flag rate on real data | `DESIGN.md` §6.1, D-27 |
 | `season_check.py` | the regional's wet/dry NDVI against the pilot's, on the pilot's season windows | `DESIGN.md` §3.3, D-28 |
 | `check_rookery.py` | the Rookery Bay shard on its own: coverage, breaks, and the NDVI drop across the Irma bin | D-23 |
-| `site_budget.py` | the published site's size, the per-file worst case, and how many more years fit under GitHub Pages' limits | `DESIGN.md` §7.1a, D-30 |
+| `site_budget.py` | two budgets: `--archive` the per-repository headroom of the dataset split, `--site` an assembled Pages site | `DESIGN.md` §7.1a, D-31 |
 
 Run them with the repository's interpreter and `PYTHONPATH=src`:
 

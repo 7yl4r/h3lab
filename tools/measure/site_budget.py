@@ -1,25 +1,34 @@
 #!/usr/bin/env python3
-"""Size budget for the published site.
+"""Size budget for the published artefacts.
 
-    python tools/measure/site_budget.py                 # what the site will hold
-    python tools/measure/site_budget.py site            # an assembled site dir
-    python tools/measure/site_budget.py site --check    # CI: exit 1 if over
+    python tools/measure/site_budget.py                      # dataset-repo budget
+    python tools/measure/site_budget.py --check              # CI: exit 1 if over
+    python tools/measure/site_budget.py --site site --check  # a Pages site
 
-GitHub Pages is a static file host with two numbers that matter (both quoted
-from GitHub's own limits page):
+There are two kinds of published thing and they have different limits.
 
-* a **published site may be no larger than 1 GB**, and
-* Git itself blocks any **single file over 100 MB** (and warns from 50 MB).
+**This repository's Pages site** (the Rookery Bay bundles and the viewer code)
+is measured with `--site`: GitHub caps a published site at 1 GB and blocks any
+single file over 100 MB.
 
-The archive the viewer reads is small — 61.6 MiB for 2017 — but it grows
-linearly with the record, and one file grows faster than the rest: the res-7
-overview is deliberately a single unsharded bundle (D-21), so it carries every
-cell for every period and hits the 100 MB single-file block first, at 294 bins
-(~12.9 years). The 72 region shards are individually small enough for ~83
-years.
+**The regional datasets** are not on this site any more. Each is its own
+repository (D-31), so GitHub's per-repository limits apply to one dataset at a
+time rather than to the whole archive. `--archive` measures that split from a
+build directory and reports, per bin, how close each repository is to the
+limits. It is a different answer from the single-repo arithmetic it replaces:
+the largest file is no longer 72 shards plus an overview, it is one payload.
 
-`--check` is what the Pages workflow runs, so a build that would silently
-exceed either limit fails the deploy instead of publishing a broken site.
+Measured from the 2017 South Florida build (2.7 MiB per bin in total):
+
+* the overview repository's payload is 349 KiB per bin, so 100 MB is ~257 bins
+  (11.3 years) away -- still the binding limit, and still because the overview
+  is one unsharded bundle (D-21);
+* the largest region repository's payload is 54 KiB per bin, so 100 MB is
+  ~1,781 bins (78 years) away;
+* the 1 GB per-repository limit is not reachable by either in any realistic
+  record, because a repository now holds one dataset rather than all of them.
+
+`tools/publish_datasets.py` produces the split this measures.
 """
 
 from __future__ import annotations
@@ -37,8 +46,8 @@ FILE_WARN = 50_000_000
 BANDWIDTH_LIMIT = 100_000_000_000     # soft, per month
 BINS_PER_YEAR = 365.25 / 16
 
-DEFAULT_REGIONAL = os.path.join("data", "regional")
-DATA_DIR = "data"
+DEFAULT_ARCHIVE = os.path.join("data", "regional")
+DEFAULT_REGIONAL = DEFAULT_ARCHIVE
 
 
 def human(n: float) -> str:
@@ -65,59 +74,10 @@ def walk(root: str):
     return out
 
 
-def regional_cost(regional_dir: str):
-    """Per-bin byte cost of the regional archive, split by file role.
-
-    Returns a dict with the totals and the per-bin costs, or None when there
-    is no manifest to take the period count from.
-    """
-    manifest_path = os.path.join(regional_dir, "manifest.json")
-    if not os.path.exists(manifest_path):
-        return None
-    try:
-        with open(manifest_path, encoding="utf-8") as fh:
-            manifest = json.load(fh)
-    except (OSError, ValueError):
-        return None
-    n_bins = len(manifest.get("periods") or [])
-    if not n_bins:
-        return None
-
-    total = 0
-    overview = 0
-    largest_shard = 0
-    for name, n in walk(regional_dir):
-        total += n
-        base = os.path.basename(name)
-        if base.startswith("overview"):
-            overview = max(overview, n)
-        elif base.startswith("region_"):
-            largest_shard = max(largest_shard, n)
-    return {
-        "n_bins": n_bins,
-        "total": total,
-        "overview": overview,
-        "largest_shard": largest_shard,
-        "bytes_per_bin": total / n_bins,
-        "overview_per_bin": overview / n_bins if overview else 0.0,
-        "shard_per_bin": largest_shard / n_bins if largest_shard else 0.0,
-    }
-
-
-def pilot_files():
-    """The tracked pilot bundles, which the pilot viewer reads."""
-    out = []
-    if not os.path.isdir(DATA_DIR):
-        return out
-    for name in sorted(os.listdir(DATA_DIR)):
-        p = os.path.join(DATA_DIR, name)
-        if (os.path.isfile(p) and name.startswith("rookery_bay_h3")
-                and (name.endswith(".bin.gz") or name.endswith(".json"))):
-            out.append((os.path.join(DATA_DIR, name), os.path.getsize(p)))
-    return out
-
-
-def report(label: str, files, cost, check: bool) -> int:
+# --------------------------------------------------------------------------
+# mode 1: a Pages site
+# --------------------------------------------------------------------------
+def site_report(label: str, files, check: bool) -> int:
     total = sum(n for _p, n in files)
     biggest = max(files, key=lambda r: r[1]) if files else ("-", 0)
 
@@ -128,20 +88,13 @@ def report(label: str, files, cost, check: bool) -> int:
 
     print("\nlimits")
     ok = True
-
-    # -- published site size -------------------------------------------------
-    line = (f"  published site   {PAGES_SITE_LIMIT:>13,} B   "
-            f"used {total / PAGES_SITE_LIMIT:6.1%}")
-    if cost:
-        extra = (PAGES_SITE_LIMIT - total) / cost["bytes_per_bin"]
-        line += (f"   {human(PAGES_SITE_LIMIT - total)} headroom = "
-                 f"{extra:,.0f} more bins ({extra / BINS_PER_YEAR:.1f} yr)")
-    print(line)
+    print(f"  published site   {PAGES_SITE_LIMIT:>13,} B   "
+          f"used {total / PAGES_SITE_LIMIT:6.1%}   "
+          f"{human(PAGES_SITE_LIMIT - total)} headroom")
     if total > PAGES_SITE_LIMIT:
         ok = False
         print(f"    OVER by {human(total - PAGES_SITE_LIMIT)}")
 
-    # -- single-file size ----------------------------------------------------
     print(f"  single file      {FILE_LIMIT:>13,} B   "
           f"used {biggest[1] / FILE_LIMIT:6.1%}   "
           f"(largest is {os.path.basename(biggest[0])}, {human(biggest[1])})")
@@ -150,31 +103,92 @@ def report(label: str, files, cost, check: bool) -> int:
         print(f"    OVER by {human(biggest[1] - FILE_LIMIT)}")
     elif biggest[1] > FILE_WARN:
         print(f"    note: files above {human(FILE_WARN)} trigger a Git warning")
-    if cost and cost["overview_per_bin"]:
-        extra = (FILE_LIMIT - cost["overview"]) / cost["overview_per_bin"]
-        print(f"    the overview ({human(cost['overview'])}) has "
-              f"{human(FILE_LIMIT - cost['overview'])} headroom "
-              f"= {extra:,.0f} more bins ({extra / BINS_PER_YEAR:.1f} yr)")
 
-    # -- what scales ---------------------------------------------------------
-    if cost:
-        print(f"\n  measured: {human(cost['bytes_per_bin'])} per bin over "
-              f"{cost['n_bins']} bins "
-              f"(overview {human(cost['overview_per_bin'])}/bin, "
-              f"largest shard {human(cost['shard_per_bin'])}/bin)")
-        if cost["shard_per_bin"]:
-            extra = (FILE_LIMIT - cost["largest_shard"]) / cost["shard_per_bin"]
-            print(f"  the overview is the file that breaks first; the largest "
-                  f"shard alone reaches {human(FILE_LIMIT)} at "
-                  f"{extra:,.0f} bins ({extra / BINS_PER_YEAR:.0f} yr)")
-
-    # A cold load of the regional viewer is the overview; the pilot loads its
-    # own bundle for the chosen resolution.
-    cold = cost["overview"] if cost and cost["overview"] else biggest[1]
-    if cold:
+    if biggest[1]:
         print(f"  bandwidth        {BANDWIDTH_LIMIT:,} B/mo (soft)   "
-              f"~{BANDWIDTH_LIMIT / cold:,.0f} regional cold loads/month at "
-              f"{human(cold)} each")
+              f"~{BANDWIDTH_LIMIT / biggest[1]:,.0f} loads/month at "
+              f"{human(biggest[1])} each")
+
+    print()
+    print("budget: OK" if ok else "budget: OVER")
+    return 0 if (ok or not check) else 1
+
+
+# --------------------------------------------------------------------------
+# mode 2: the dataset split
+# --------------------------------------------------------------------------
+def archive_report(archive: str, check: bool) -> int:
+    manifest_path = os.path.join(archive, "manifest.json")
+    if not os.path.exists(manifest_path):
+        print(f"no manifest in {archive}; build the archive first", file=sys.stderr)
+        return 2
+    try:
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print(f"unreadable manifest: {exc}", file=sys.stderr)
+        return 2
+
+    n_bins = len(manifest.get("periods") or [])
+    overview = manifest.get("overview") or {}
+    regions = manifest.get("regions") or []
+    if not n_bins or not regions:
+        print(f"{manifest_path} has no periods or no regions", file=sys.stderr)
+        return 2
+
+    ov_bytes = int(overview.get("bytes") or 0)
+    largest = max(regions, key=lambda r: int(r.get("bytes") or 0))
+    sh_bytes = int(largest.get("bytes") or 0)
+    total = sum(int(r.get("bytes") or 0) for r in regions) + ov_bytes
+    n_datasets = 1 + len(regions)
+
+    print(f"archive: {archive}")
+    print(f"  bins:     {n_bins}")
+    print(f"  build:    {total:,} B over {len(regions) + 1} payloads ({human(total)})")
+    print(f"  datasets: {n_datasets} repositories "
+          f"(1 overview + {len(regions)} regions)")
+    print(f"  overview: {overview.get('file')}  {ov_bytes:,} B "
+          f"({human(ov_bytes)}, {human(ov_bytes / n_bins)}/bin)")
+    print(f"  largest:  {largest.get('region')}  {sh_bytes:,} B "
+          f"({human(sh_bytes)}, {human(sh_bytes / n_bins)}/bin)")
+
+    print("\nper-repository limits")
+    ok = True
+
+    ov_extra = (FILE_LIMIT - ov_bytes) / (ov_bytes / n_bins)
+    line = f"  single file      {FILE_LIMIT:>13,} B   overview reaches it at "
+    line += (f"{ov_extra:,.0f} more bins ({ov_extra / BINS_PER_YEAR:.1f} yr)")
+    print(line)
+    if ov_bytes > FILE_LIMIT:
+        ok = False
+        print(f"    OVER: the overview payload is {human(ov_bytes - FILE_LIMIT)} "
+              f"past the limit")
+    elif ov_bytes > FILE_WARN:
+        print(f"    note: the overview payload is above {human(FILE_WARN)} "
+              f"(Git warns, does not block)")
+
+    sh_extra = (FILE_LIMIT - sh_bytes) / (sh_bytes / n_bins)
+    print(f"                   largest region          reaches it at "
+          f"{sh_extra:,.0f} bins ({sh_extra / BINS_PER_YEAR:.0f} yr)")
+
+    # A repository holds one payload plus a descriptor, so the 1 GB limit is
+    # measured against the largest payload, not the archive.
+    repo_bytes = max(ov_bytes, sh_bytes) + 20_000     # + descriptor/README
+    repo_extra = (PAGES_SITE_LIMIT - repo_bytes) / ((ov_bytes or sh_bytes) / n_bins)
+    print(f"  one repository   {PAGES_SITE_LIMIT:>13,} B   largest is "
+          f"{human(repo_bytes)}; full at {repo_extra:,.0f} bins "
+          f"({repo_extra / BINS_PER_YEAR:.0f} yr)")
+    if repo_bytes > PAGES_SITE_LIMIT:
+        ok = False
+        print("    OVER: a single dataset repository exceeds the 1 GB site limit")
+
+    print("\n  the overview is still the file that breaks first: it is one "
+          "unsharded bundle\n  carrying every cell for every period (D-21), "
+          "while a shard is 72x smaller.")
+    print(f"  splitting the overview by year is what buys the next decade; "
+          f"it is Phase 2 work (D-30).")
+    print(f"  repository count grows with regions, not with years: "
+          f"{n_datasets} today, +{len(regions)} per new AOI.")
 
     print()
     print("budget: OK" if ok else "budget: OVER")
@@ -182,36 +196,24 @@ def report(label: str, files, cost, check: bool) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("site", nargs="?", default=None,
-                    help="assembled site directory (default: what the site will hold)")
-    ap.add_argument("--regional", default=None,
-                    help="regional archive directory used for the per-bin cost")
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--site", default=None,
+                    help="measure an assembled Pages site directory")
+    ap.add_argument("--archive", default=DEFAULT_ARCHIVE,
+                    help=f"regional build to measure as a dataset split "
+                         f"(default {DEFAULT_ARCHIVE})")
     ap.add_argument("--check", action="store_true",
-                    help="exit 1 when the site exceeds a limit")
+                    help="exit 1 when a limit is exceeded")
     args = ap.parse_args()
 
     if args.site:
-        region = args.regional
-        if region is None:
-            candidate = os.path.join(args.site, "data", "regional")
-            region = candidate if os.path.isdir(candidate) else DEFAULT_REGIONAL
         if not os.path.isdir(args.site):
             print(f"no such directory: {args.site}", file=sys.stderr)
             return 2
-        return report(args.site, walk(args.site), regional_cost(region), args.check)
-
-    # No site given: measure the two things the site would contain, in place.
-    region = args.regional or DEFAULT_REGIONAL
-    if not os.path.isdir(region):
-        print(f"no regional archive at {region}; build it or pass a site dir",
-              file=sys.stderr)
-        return 2
-    files = [(os.path.join(region, p), n) for p, n in walk(region)]
-    files += pilot_files()
-    return report("(regional archive + tracked pilot bundles)", files,
-                  regional_cost(region), args.check)
+        return site_report(args.site, walk(args.site), args.check)
+    return archive_report(args.archive, args.check)
 
 
 if __name__ == "__main__":

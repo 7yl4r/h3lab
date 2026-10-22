@@ -16,20 +16,31 @@ data/cache/
 #                       (664 MB a bin), and ~406 GB for the full record.
 # data/cache_regional/ the per-cell composite and change caches: 70 MB.
 #
-# data/regional/ IS tracked, deliberately -- it is the published archive the
-# viewers read, 61.6 MiB for 2017, and it is what GitHub Pages serves.
-# Rebuild everything with:
+# data/regional/ is the *build output* of the regional pipeline: one res-7
+# overview, 72 res-8 region shards and a manifest. It is not tracked, because
+# it is not the unit of publication -- `tools/publish_datasets.py` splits it
+# into one repository per dataset, and the viewer addresses those repositories
+# by URL. Keeping the build here would put 73 datasets back in one repo, which
+# is exactly what D-31 moved away from.
+#
+# Build it with:
 #
 #   PYTHONPATH=src python -m h3lab.run --regional --year 2017 --resolutions 7,8
 #
-# The stages are cached independently, so the network-bound part (mosaic) is
-# paid once and everything after it is arithmetic over files on disk. Drop the
-# mosaic cache on any machine that does not intend to rebuild: it is 15 GB for
-# one year and the archive is 62 MiB.
+# and split it with:
+#
+#   python tools/publish_datasets.py --dist dist
+#
+# The mosaic cache is the expensive stage; drop it on any machine that does not
+# intend to rebuild: 15 GB for one year, against a 62 MiB archive.
 # ---------------------------------------------------------------------------
 data/mosaic_cache/
 data/cache_regional/
+data/regional/
 data/regional_test/
+
+# Split dataset repositories awaiting a push (tools/publish_datasets.py).
+dist/
 
 # Scratch: calibration prototypes and one-off measurements. The measurement
 # scripts that back the numbers in docs/ live in tools/measure/ and are

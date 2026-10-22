@@ -42,11 +42,15 @@ The pieces that are new, and why they exist:
 - **A region-sharded archive** (`shard.py`, `export_region.py`). Shards are
   keyed by the cell's H3 **res-4 parent** — 72 of them, covering 100 % of the
   res-8 grid — with the res-7 overview as a single unsharded file (D-21).
+  Each shard is published as **its own repository**, and the overview
+  repository carries the manifest that addresses them by URL (D-31).
 - **A change layer** (`change.py`) carrying, per cell, the bin, date,
   magnitude, score and method of the largest break found by a step-regressor
   partial-F scan (D-14, D-27).
-- **A two-level viewer** (`viewer/regional.html`) that fetches the overview
-  first and then only the shards on screen.
+- **A dataset-driven viewer** (`viewer/regional.html`) that takes a manifest
+  URL, fetches the overview first and then only the shards on screen. It does
+  not assume the payloads are on the same origin, so a dataset can live in one
+  repository or in seventy-three.
 
 ### Running it
 
@@ -68,12 +72,32 @@ arithmetic over files on disk, so a code change costs minutes to re-run
 rather than hours (D-26). The per-stage caches live under `data/` and are
 **not** tracked — they are build accelerators, not products.
 
+The build writes one directory, `data/regional/`, which is also not tracked:
+it is the *input* to publication, not the published thing. Splitting it into
+one repository per dataset is a separate, explicit step:
+
+```bash
+# show the plan: 73 repositories, one overview + 72 regions
+python tools/publish_datasets.py
+
+# write dist/h3-overview/ and dist/h3-region-<parent>/ x 72
+python tools/publish_datasets.py --dist dist
+
+# create the GitHub repositories (needs gh, authenticated), then push
+python tools/publish_datasets.py --emit-create dist/create-repos.sh
+python tools/publish_datasets.py --dist dist --push
+```
+
+The split copies payloads unchanged and stamps each manifest entry with the
+absolute URL of its payload, so the build stays byte-identical and the viewer
+needs no knowledge of where the data lives.
+
 ### What it produces, measured
 
 For 2017 (23 bins): 383 scenes read, 23 mosaics, 128,236 res-8 cells in 72
-shards plus an 18,115-cell res-7 overview, **64.5 MB served**, **under half a
-second** cold load against a 3 s budget, and 5,760 cells (4.5 %) carrying a
-change break.
+shards plus an 18,115-cell res-7 overview, **64.5 MB published across 73
+repositories** (61.6 MiB of payload), **under a second** cold load against a
+3 s budget, and 5,760 cells (4.5 %) carrying a change break.
 
 Check a build against the five exit criteria with:
 
@@ -91,63 +115,72 @@ The *measured* numbers in `docs/DESIGN.md` and `docs/DECISIONS.md` come from
 scripts rather than prose so the claims can be re-checked against a build
 instead of taken on trust.
 
-### Hosting it: GitHub Pages
+### Publishing it: one repository per dataset
 
-The site is static — two HTML files, the archive they read, and nothing that
-needs a server — so GitHub Pages can serve it directly. What it needs is
-**75.1 MiB**:
+The unit of publication is a **dataset**, not this repository (D-31). This
+repository publishes the Rookery Bay record and the viewer code; the regional
+archive is split so that the overview and each of the 72 region shards are
+their own repository.
 
-| item | bytes | tracked? |
+| what | where it is published | size |
 |---|---|---|
-| `data/regional/` (overview + 72 shards + manifest) | 61.6 MiB | yes |
-| `data/rookery_bay_h3_res{8,9,10}.bin.gz` | 13.4 MiB | yes |
-| `data/mosaic_cache/` (per-bin 30 m mosaic) | 15.3 GiB | **no** |
-| `data/cache_regional/` (per-cell npz) | 70.4 MiB | **no** |
+| Rookery Bay bundles res 8/9/10 | this repository's Pages site | 13.4 MiB |
+| the viewer code + dataset catalog | this repository's Pages site | 60 KiB |
+| res-7 overview + the index manifest | `h3-overview` | 7.8 MiB |
+| one res-8 region shard, ×72 | `h3-region-<res4 parent>`, one each | 15 KiB–1.3 MiB |
+| mosaic cache / npz cache | nowhere — build machine only | 15.3 GiB / 70 MiB |
 
-The two caches are the "too big" part, and they are not part of the site: the
-mosaic cache is a build accelerator that the pipeline regenerates, and the npz
-cache never leaves the build machine. Only the archive is published.
+The split is not cosmetic. It changes which limit binds:
 
-`.github/workflows/pages.yml` assembles the site, runs
-`tools/measure/site_budget.py site --check`, and deploys it. The budget gate
-matters because the site grows with the record and two of GitHub's limits are
-reachable:
-
-| limit | what hits it | measured headroom |
+| limit | whose limit | measured headroom |
 |---|---|---|
-| 1 GB published site | the whole archive | 328 more bins = **14.4 yr** |
-| 100 MB per file | `overview_res7.bin.gz` | 257 more bins = **11.3 yr** |
-| 100 MB per file | the largest res-8 shard | 1,781 bins = **78 yr** |
+| 1 GB *per repository* | each dataset repository | 2,779 bins ≈ 122 yr |
+| 100 MB per file | the overview repository's payload | 257 more bins = **11.3 yr** |
+| 100 MB per file | the largest region repository's payload | 1,781 bins = 78 yr |
+| 1 GB per Pages site | this repository's site (13.5 MiB) | 1.4 % used |
 
-The single unsharded res-7 overview is the file that breaks first, because
-D-21 made it one bundle carrying every cell for every period. The 72-way
-res-8 sharding is why the rest of the archive is not a problem. Past ~14
-years the fix is to split the overview by year (and to publish the record a
-year at a time, which also stops each year's rebuild rewriting every shard in
-git history). D-30 records the decision; `python tools/measure/site_budget.py`
-reports the current numbers.
+The overview is still the file that breaks first, and still for the same
+structural reason: D-21 made it one unsharded bundle, so it carries every cell
+for every period and is 72× larger than any shard. Splitting it by year is
+what buys the next decade (D-30). What the per-dataset split *does* fix is the
+git-history growth: adding a year now rewrites one file in each repository
+instead of all 74 in one, so history grows linearly per dataset rather than
+quadratically overall.
 
-**The prototype is live at `https://tylar.info/h3lab/`** (the project site
-inherits the user site's custom domain; `7yl4r.github.io/h3lab` 301-redirects
-there). Verified from outside: landing page, both viewers and all 74 archive
-files return 200, `src/`, `tools/`, `docs/` and `README.md` return 404 — only
-the assembled `site/` tree is published — and a cold load of the res-7
-overview took **698 ms** over the network against the 3 s budget (441 ms
-against a local server, so the gap is transit, not parsing).
+Addressing is a URL template, so where a dataset lives is a publishing
+choice, not a format constraint:
 
-To publish, once: **Settings → Pages → Build and deployment → Source:
-GitHub Actions**. The workflow cannot flip that itself — it needs repository
-admin, and the workflow token does not have it, so the first run stops at
-`configure-pages` with a 403. After the switch, re-run the workflow
-(Actions → pages → Re-run all jobs). Later runs need nothing.
+```bash
+python tools/publish_datasets.py --dist dist \
+  --url-template 'https://raw.githubusercontent.com/7yl4r/{repo}/{ref}/{file}'
+```
 
-If the record outgrows Pages before it is split by year, the agreed escape
-hatch is an object store — a Google Cloud bucket holding `data/regional/`,
-with the site keeping only the HTML. That is deliberately cheap to switch
-because each viewer reads its data through one constant (`BASE` in
-`viewer/regional.html`, `STEM` in `viewer/pilot.html`), so the change is an
-absolute URL plus a CORS policy on the bucket; nothing else in the read path
-assumes the data is same-origin. It is not needed at 75.1 MiB.
+The default template points at `raw.githubusercontent.com`, which needs no
+per-repository Pages enablement and returns `access-control-allow-origin: *`.
+A Google Cloud bucket is the same command with
+`--url-template 'https://storage.googleapis.com/<bucket>/{repo}/{file}'` — the
+bucket plan and the GitHub plan produce identical manifests, so switching is a
+CORS policy away. `tools/measure/site_budget.py --archive data/regional` prints
+the numbers above; `--site site` gates this repository's Pages site.
+
+`.github/workflows/pages.yml` assembles the site (viewer HTML, the catalog,
+the pilot bundles and a root redirect), runs the budget gate and deploys.
+`src/`, `tools/`, `docs/`, `README.md`, the build output and the caches are
+never published.
+
+**This repository's site is live at `https://tylar.info/h3lab/`** (the project
+site inherits the user site's custom domain; `7yl4r.github.io/h3lab`
+301-redirects there). The Pages switch is already flipped for this repository;
+later pushes to `main` deploy without further setup. The regional datasets are
+not published yet: the landing page reads `viewer/datasets.json`, probes each
+manifest URL, and marks an entry "not published yet" rather than offering a
+dead link. Publishing them is the `--dist` / `--push` steps above.
+
+To publish, once, for any *new* repository that needs Pages rather than raw
+file access: **Settings → Pages → Build and deployment → Source: GitHub
+Actions**. The workflow cannot flip that itself — it needs repository admin,
+and the workflow token does not have it, so the first run stops at
+`configure-pages` with a 403.
 
 ---
 
@@ -621,28 +654,31 @@ pill under the toolbar.
 Tracked, 14 MB total:
 
 ```
-src/h3lab/*.py   the pipeline (9 modules, ~1450 lines)
-viewer/*.html    viewer and load probe, no build step
-data/*.bin.gz    the export bundle, 13.4 MB
-data/*_meta.json its index, 1.5 kB
-requirements.txt pinned direct dependencies
+src/h3lab/*.py        the pipeline
+viewer/*.html         landing page, two viewers, load probe; no build step
+viewer/datasets.json  the catalog of regional overview repositories
+data/*.bin.gz         the Rookery Bay pilot bundle, 13.4 MB
+data/*_meta.json      its index, 1.5 kB
+tools/                verification, publication and measurement scripts
+requirements.txt      pinned direct dependencies
 ```
 
-Ignored:
+Ignored, because it is build output rather than product:
 
 ```
-data/cache/   78 .npz, 14 MB -- pure build accelerator, regenerable
-logs/         run logs
+data/regional/   the South Florida build: overview + 72 shards + manifest;
+                 split into one repository per dataset by
+                 tools/publish_datasets.py (D-31)
+data/mosaic_cache/  15.3 GB of 30 m mosaics for 2017
+data/cache_regional/ per-cell composite and change caches
+dist/            staged dataset repositories awaiting a push
 ```
 
-The bundle is derived, but tracking it is deliberate: at 13.4 MB it uses 13%
-of GitHub's 100 MB per-file ceiling and 0.3% of the 5 GB repository limit, and
-it means a fresh clone opens the viewer immediately instead of running a
-one-hour network-dependent pipeline first.
-
-**Do not track `data/cache/`.** It is 14 MB of intermediates that exist only so
-a re-run can skip the download. Committing it doubles the repository to store
-something with no value.
+The pilot bundle is derived, but tracking it is deliberate: at 13.4 MB it uses
+13% of GitHub's 100 MB per-file ceiling, and it means a fresh clone opens the
+Rookery Bay viewer immediately instead of running a one-hour network-dependent
+pipeline first. The *regional* archive is not tracked for the opposite reason:
+it is 73 datasets, and 73 datasets are 73 repositories (D-31).
 
 ### Why the bundle is safe to commit
 
@@ -676,18 +712,21 @@ src/h3lab/
   features.py   index computation only -- no classification
   export.py     JSON bundle, one file per resolution
   run.py        CLI
-viewer/index.html      landing page: links both viewers
+viewer/index.html      landing page: Rookery Bay + the regional catalog
 viewer/pilot.html      the Rookery Bay pilot viewer
-viewer/regional.html   the South Florida regional viewer
+viewer/regional.html   dataset viewer: overview first, shards on demand
+viewer/datasets.json   catalog of regional overview repositories
 viewer/probe.html      isolated load probe — use this to diagnose a slow load
-serve.sh        serve over HTTP (fetch() is blocked on file://)
+serve.sh         serve over HTTP (fetch() is blocked on file://)
+tools/publish_datasets.py   split a build into one repository per dataset
 data/cache/     78 per-composite .npz files (gitignored)
 data/rookery_bay_h3_meta.json    index: bbox, palette, events, block filenames
 data/rookery_bay_h3_res8.bin.gz  421 cells x 26 periods,  0.3 MB served
 data/rookery_bay_h3_res9.bin.gz  2,944 cells x 26 periods,  2.0 MB served
 data/rookery_bay_h3_res10.bin.gz 20,607 cells x 26 periods, 11.9 MB served
-data/regional/     the published regional archive (tracked, 61.6 MiB for 2017)
+data/regional/     the South Florida build (gitignored, split into repos)
 data/mosaic_cache/ the 30 m mosaic cache, 15.3 GB for 2017 (gitignored)
+dist/              staged dataset repositories (gitignored)
 ```
 
 Blocks are split per resolution so the viewer fetches only what is on screen,

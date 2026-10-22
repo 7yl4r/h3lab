@@ -9,6 +9,12 @@
 // and automatable -- stand-in for the "< 3 s" exit criterion.
 //
 // Usage: node tools/cold_load_probe.mjs <baseUrl> [outDir]
+//
+//     node tools/cold_load_probe.mjs http://localhost:8000              # local build
+//     node tools/cold_load_probe.mjs http://localhost:8000 dist/h3-overview
+//
+// `outDir` is wherever manifest.json and the overview payload sit together --
+// the overview repository, in a published dataset (D-31).
 
 const base = (process.argv[2] || 'http://localhost:8000').replace(/\/$/, '');
 const outDir = process.argv[3] || 'data/regional';
@@ -89,7 +95,11 @@ async function gunzip(bytes) {
   if (!manifest.overview) throw new Error('manifest has no overview entry');
 
   const [bytes, downloadMs] = await t(async () => {
-    const res = await fetch(`${base}/${outDir}/${manifest.overview.file}`, { cache: 'no-store' });
+    // A published manifest stamps an absolute URL for the overview, so the
+    // probe can measure a dataset that lives in another repository (D-31);
+    // a local build has no stamp and keeps the payload beside the manifest.
+    const url = manifest.overview.url || `${base}/${outDir}/${manifest.overview.file}`;
+    const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error(`overview HTTP ${res.status}`);
     return new Uint8Array(await res.arrayBuffer());
   });

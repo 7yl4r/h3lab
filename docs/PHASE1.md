@@ -1,14 +1,14 @@
 # Phase 1 — regional vertical slice: implementation plan
 
 **Status:** implemented; all five exit criteria pass.
-**Last updated:** 2026-10-21
+**Last updated:** 2026-10-22
 **Read with:** `PLAN.md` §5 (phases), `docs/DESIGN.md` (how the system works),
 `docs/DECISIONS.md` (why). This file is the working plan for Phase 1 only and
 does not re-decide anything already settled; decisions taken while writing it
 are appended to `DECISIONS.md` as D-21 onward.
 
 > **Corrections found while executing this plan.** The body below is the plan
-> as written; five of its numbers were wrong and are corrected in
+> as written; six things were wrong or underspecified and are corrected in
 > `DESIGN.md`/`DECISIONS.md` rather than edited here, so the plan still reads
 > as the plan:
 >
@@ -42,6 +42,17 @@ are appended to `DECISIONS.md` as D-21 onward.
 >   pilot's dry composite is higher than its wet composite in 13 of 13 years,
 >   so such a bar would fail a correct build. The check is now the
 >   pilot-vs-regional comparison, on the pilot's own season windows (D-28).
+> - **The archive is published as one repository per dataset, not as one
+>   site.** The plan says "region shard key = H3 res-4" and stops at the
+>   file layout; it does not say where those files live. Publishing them from
+>   this repository turned out to be wrong for three reasons — quadratic git
+>   history, one shared 1 GB ceiling, and coupling unrelated rebuilds — so
+>   the res-7 overview and each of the 72 res-8 shards are now their own
+>   repository, addressed by absolute URL from a `manifest.json` that the
+>   overview repository carries (D-31). `h3lab` publishes the Rookery Bay
+>   record and the viewer code only. The five exit criteria are unaffected:
+>   they measure the build, and the build is unchanged — the split copies
+>   payloads byte-for-byte and stamps URLs into a *copy* of the manifest.
 >
 > The build is also staged rather than monolithic (D-26): only the `mosaic`
 > stage touches the network, so a code change costs minutes to re-run rather
@@ -49,10 +60,11 @@ are appended to `DECISIONS.md` as D-21 onward.
 >
 > **Where the build landed** (2017, 23 bins, res 8 + res 7 overview):
 > 383 scenes; 23 mosaics; 128,236 res-8 cells in 72 shards plus an 18,115-cell
-> res-7 overview; 64.5 MB served; under half a second cold load against a 3 s
-> budget; 5,760 cells (4.5 %) carry a change break. The measured mosaic cache
-> is 15.27 GB for the year — 664 MB a bin — so the full 612-bin record needs
-> ~400 GB of it, against 1.7 GB of archive (D-29).
+> res-7 overview; 64.5 MB published across 73 dataset repositories (61.6 MiB
+> of payload); under a second cold load against a 3 s budget; 5,760 cells
+> (4.5 %) carry a change break. The measured mosaic cache is 15.27 GB for the
+> year — 664 MB a bin — so the full 612-bin record needs ~400 GB of it,
+> against 1.7 GB of archive (D-29).
 
 ---
 

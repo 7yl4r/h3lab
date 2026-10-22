@@ -203,7 +203,17 @@ input[type=range]{accent-color:var(--accent)}
 import maplibregl from 'maplibre-gl';
 
 const $ = s => document.querySelector(s);
-const BASE = '../data/regional';
+
+// The viewer is dataset-driven, not path-driven: a dataset is a manifest URL,
+// and every payload in it is addressed by `url` when the publisher stamped one
+// (tools/publish_datasets.py). Without a stamp the payload is expected beside
+// the manifest, which is what a local `data/regional/` build looks like.
+//
+//   viewer/regional.html?manifest=https://.../h3-overview/main/manifest.json
+const PARAMS = new URLSearchParams(location.search);
+const MANIFEST_URL = PARAMS.get('manifest') || '../data/regional/manifest.json';
+const BASE = MANIFEST_URL.slice(0, MANIFEST_URL.lastIndexOf('/') + 1);
+const payloadURL = e => e.url || (BASE + e.file);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const fmt=(v,n=3)=>v==null||!isFinite(v)?'&mdash;':v.toFixed(n);
 const isMissing = v => v==null || (typeof v==='number' && Number.isNaN(v));
@@ -420,16 +430,21 @@ function decodeBlock(buffer){
 async function boot(){
   try{
     const t0=performance.now();
-    S.manifest = await fetchJSON(`${BASE}/manifest.json`);
+    S.manifest = await fetchJSON(MANIFEST_URL);
     mark('manifest', performance.now()-t0, `${S.manifest.regions.length} regions`);
   }catch(err){
     $('#loading').innerHTML=
-      `<div style="max-width:620px;text-align:center;line-height:1.75">
-        <div style="color:#e0a458;font-size:15px;margin-bottom:8px">could not load the regional manifest</div>
-        <div>${err.message}</div>
+      `<div style="max-width:660px;text-align:center;line-height:1.75">
+        <div style="color:#e0a458;font-size:15px;margin-bottom:8px">could not load the dataset manifest</div>
+        <div style="font-family:ui-monospace,monospace;font-size:12px">${MANIFEST_URL}</div>
+        <div style="margin-top:6px">${err.message}</div>
         <div style="margin-top:14px;color:#98a2b8;font-size:12px">
-          Build the regional bundle first:<br><br>
-          <code>export PYTHONPATH=$PWD/src &amp;&amp; python -m h3lab.run_regional --year 2017 --resolutions 7,8</code><br><br>
+          A dataset is a manifest URL — the overview repository is the index.
+          Choose one from the landing page, or pass it explicitly:<br>
+          <code>regional.html?manifest=https://raw.githubusercontent.com/&hellip;/manifest.json</code>
+          <br><br>
+          To build one locally:<br>
+          <code>export PYTHONPATH=$PWD/src &amp;&amp; python -m h3lab.run --regional --year 2017 --resolutions 7,8</code><br><br>
           Browsers block <code>fetch</code> on <code>file://</code>, so serve the folder over HTTP:<br>
           <code>cd h3lab &amp;&amp; ./serve.sh</code> then open
           <code>http://localhost:8000/viewer/regional.html</code></div></div>`;
@@ -452,7 +467,7 @@ async function boot(){
   setupMap();
 
   try{
-    const gz=await fetchBytes(`${BASE}/${m.overview.file}`);
+    const gz=await fetchBytes(payloadURL(m.overview));
     const raw=await gunzip(gz);
     S.overview=decodeBlock(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength));
   }catch(err){
@@ -748,7 +763,7 @@ async function loadVisibleShards(){
 async function ensureShard(r){
   if(S.pending.has(r.region)) return S.pending.get(r.region);
   const p=(async()=>{
-    const gz=await fetchBytes(`${BASE}/${r.file}`);
+    const gz=await fetchBytes(payloadURL(r));
     const raw=await gunzip(gz);
     const block=decodeBlock(raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength));
     S.shards.set(r.region, block);

@@ -1,0 +1,10 @@
+{
+  "datasets": [
+    {
+      "name": "South Florida regional",
+      "years": "2017",
+      "detail": "res 7 overview + 72 res-8 region shards, one repository per shard",
+      "manifest": "https://raw.githubusercontent.com/7yl4r/h3-overview/main/manifest.json"
+    }
+  ]
+}
