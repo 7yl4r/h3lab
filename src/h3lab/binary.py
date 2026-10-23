@@ -112,8 +112,8 @@ def build_block(block: dict) -> tuple[dict, list[bytes]]:
     fields: list[dict] = []
     chunks: list[bytes] = []
 
-    # `band` is optional: the pilot export drops reflectance and ships the
-    # assessment instead, while the regional archive still carries it.
+    # `band` is optional: the pilot ships reflectance alongside the per-cell
+    # assessment, while a summary-only export can leave it out.
     float_groups = (
         ("band", block.get("band") or {}),
         ("index", block.get("index") or {}),

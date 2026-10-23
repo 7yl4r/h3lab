@@ -211,7 +211,10 @@ const RAMPS={
   // blue again. The wrap is intentional; the legend says so.
   phase:[[70,110,200],[80,150,190],[90,190,160],[130,210,110],[200,220,90],
          [235,190,80],[235,150,70],[225,110,75],[200,90,100],[170,90,130],
-         [130,95,160],[90,100,180],[70,110,200]]
+         [130,95,160],[90,100,180],[70,110,200]],
+  // Reflectance: dark substrate to bright substrate. Deliberately neutral --
+  // band identity belongs to the legend and the spectral profile, not here.
+  spec:[[12,14,22],[58,62,84],[128,132,150],[232,222,192]]
 };
 const NODATA='#282b34';
 const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -232,6 +235,10 @@ function rampColor(t,stops){
  * and the ramp cannot disagree.
  */
 const DELTA_SPAN = 0.3;                 // +/- span of the change-vs-baseline ramp
+// Reflectance has no natural ceiling. Fixed caps keep two resolutions
+// comparable and are shown on the legend; deriving them from the data would
+// make the same cell change colour between resolutions.
+const BAND_SPAN = {blue:0.20, green:0.30, red:0.30, nir:0.60, swir1:0.50, swir2:0.40};
 const DOMAIN_RAMP = {greenness:'veg', 'open water':'water',
                      'canopy moisture':'frac', 'burn / bare substrate':'fire'};
 function spec(k){ return (S.data.meta.index_specs||{})[k]||{}; }
@@ -243,6 +250,31 @@ function idxRamp(k){
 function idxLabel(k){ return spec(k).label||k.toUpperCase(); }
 function analysisSpec(key){
   return (S.data.meta.analysis||[]).find(a=>a.key===key)||{};
+}
+
+// Chart colours per band, keyed to the band's own wavelength -- the
+// convention for plotting spectral response, where visible bands get their
+// real colour and the near-infrared continues the hue wheel past red.
+// blue 482nm -> green 562 -> red 655 -> NIR 865 (crimson) -> SWIR1 1610
+// (violet) -> SWIR2 2200 (indigo). Separated enough to read on a dark panel,
+// which all-single-colour could not manage.
+const BAND_COLORS = {
+  blue:'#4d8dfa',
+  green:'#31c275',
+  red:'#f4574f',
+  nir:'#e8499f',
+  swir1:'#b25ff0',
+  swir2:'#5f7cf2',
+};
+function bandColor(b){ return BAND_COLORS[b]||'#9aa4bb'; }
+function bandLabel(b){
+  const i=(S.data.meta.band_info||{})[b];
+  return i ? `${i.label} ${i.nm}nm` : b;
+}
+function rgba(hexStr,a){
+  const h=hexStr.replace('#','');
+  const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),bl=parseInt(h.slice(4,6),16);
+  return `rgba(${r},${g},${bl},${a})`;
 }
 
 // Chart colours per index. Distinct hues, all readable on the dark panel.
@@ -433,8 +465,9 @@ function decodeBlock(buffer){
   const block={
     periods:desc.periods, nCells:C, ids:desc.ids,
     lon:desc.lon, lat:desc.lat, areaKm2:desc.areaKm2,
-    index:{}, cell:{}, cellraw:{},
+    band:{}, index:{}, cell:{}, cellraw:{},
   };
+  for(const nm of (desc.bands||[])) block.band[nm]=perPeriod(`band.${nm}`);
   for(const nm of (desc.indices||[])) block.index[nm]=perPeriod(`index.${nm}`);
   // Per-cell assessment: no time axis, so these stay flat arrays.
   for(const nm of (desc.cells||[])) block.cell[nm]=cellField(`cell.${nm}`);
@@ -518,6 +551,8 @@ function setupModes(){
   for(const a of (m.analysis||[])) add('analysis:'+a.key, a.label, 'assessment');
   for(const k of m.indices) add(k, idxLabel(k), 'indices');
   add('delta','change vs baseline','change');
+  for(const b of (m.bands||[]))
+    add('band:'+b, `reflectance · ${bandLabel(b)}`, 'reflectance');
 
   const dsel=$('#deltaidx'); dsel.innerHTML='';
   const asel=$('#analysisidx'); asel.innerHTML='';
@@ -623,9 +658,9 @@ function buildGeometry(){
  *          rotating its shape, and angle will not notice, while churn will.
  *
  * Both are computed at export time (h3lab.analysis) and shipped as per-cell
- * fields, because they are the two things that need the band vectors. Keeping
- * the bands in the browser just to derive them would put six times the bytes
- * on the wire for one layer.
+ * fields, so the map does not refit every cell on every load. The band
+ * vectors still ship: the biography's heatmap and spectral profile need them,
+ * and they are also what the reflectance layers draw.
  * ------------------------------------------------------------------ */
 const STAB_MIN_PERIODS = 4;
 // Minimum usable composites for a trend-and-season fit. Matches
@@ -699,6 +734,14 @@ function buildColourCache(){
           out[c]=NODATA; continue;
         }
         out[c]=rampColor((b-a)/DELTA_SPAN+0.5, RAMPS.diff);
+      }
+    }else if(S.mode.startsWith('band:')){
+      const band=S.mode.slice('band:'.length);
+      const arr=B.band[band][i];
+      for(let c=0;c<n;c++){
+        const v=arr[c];
+        if(!B.observed[i][c]||isMissing(v)){ out[c]=NODATA; continue; }
+        out[c]=rampColor(clamp(v/BAND_SPAN[band],0,1), RAMPS.spec);
       }
     }else{
       const key=S.mode;                       // an index name
@@ -902,6 +945,12 @@ function buildLegend(){
   }else if(S.mode==='delta'){
     h=ramp(RAMPS.diff,['&minus;'+DELTA_SPAN,0,'+'+DELTA_SPAN],
       {title:`&Delta; ${idxLabel(S.deltaIdx)} vs ${periodLabel(S.baselineIdx)}`});
+  }else if(S.mode.startsWith('band:')){
+    const band=S.mode.slice('band:'.length);
+    h=ramp(RAMPS.spec,['0',BAND_SPAN[band].toFixed(2)],
+      {title:`reflectance &middot; ${bandLabel(band)}`,
+       sub:'Surface reflectance, Collection 2 Level-2 scaling. Capped at '+
+           BAND_SPAN[band]+' for display.'});
   }else if(S.mode.startsWith('analysis:')){
     const key=S.mode.slice('analysis:'.length), sp=analysisSpec(key);
     const [lo,hi]=sp.range||[0,1];
@@ -981,6 +1030,25 @@ function buildExtremes(){
       (cells.length? cells.slice(0,10).map((o,n)=>
         row(o,n,analysisValue(key,o.v))).join('')
         : '<div style="color:var(--muted)">no fitted cells</div>');
+    wire();
+    return;
+  }
+
+  // ---- the reflectance layer on screen
+  if(S.mode.startsWith('band:')){
+    const band=S.mode.slice('band:'.length);
+    const arr=B.band[band][S.periodIdx]||[];
+    const cells=[];
+    for(let c=0;c<B.nCells;c++){
+      if(!B.observed[S.periodIdx][c]||isMissing(arr[c])) continue;
+      cells.push({c,v:arr[c]});
+    }
+    cells.sort((p,q)=>q.v-p.v);
+    el.innerHTML=`<h3>brightest ${bandLabel(band)}`+
+      `<br><span style="font-weight:400;text-transform:none;letter-spacing:0">${periodLabel(S.periodIdx)}</span></h3>`+
+      (cells.length? cells.slice(0,10).map((o,n)=>
+        row(o,n,o.v.toFixed(3),bandColor(band))).join('')
+        : '<div style="color:var(--muted)">no observed cells</div>');
     wire();
     return;
   }
@@ -1180,15 +1248,24 @@ function renderInspector(id){
     ? `<div class="riblabels"><div>${B.periods[0].year}</div><div style="flex:1"></div><div>${B.periods[B.periods.length-1].year}</div></div>`
     : `<div class="riblabels">${B.periods.map(p=>`<div>${p.season[0]}</div>`).join('')}</div>`;
 
-  // One heatmap for every index: they share a single time axis, so a
-  // composite that misbehaved across many series reads as one vertical run.
-  // Colours on the left identify the series; colours in the cells are
-  // reserved for the anomaly itself.
+  // One heatmap for both groups: six reflectance bands and every index share a
+  // single time axis, so a composite that misbehaved across many series reads
+  // as one vertical run. Colours on the left identify the series; colours in
+  // the cells are reserved for the anomaly itself.
   const heat=heatmapChart([
+    {title:'reflectance', rows:(m.bands||[]).map(b=>({
+        label:bandLabel(b), color:bandColor(b),
+        values:B.periods.map((p,i)=>B.band[b][i][c])}))},
     {title:'indices', rows:m.indices.map(k=>({
         label:idxLabel(k), color:INDEX_COLORS[k]||'#9aa4bb',
         values:B.periods.map((p,i)=>B.index[k][i][c])}))},
   ]);
+
+  // Spectral profile: the absolute reflectance numbers the heatmap cannot
+  // carry, expressed as a shape rather than a column of six means.
+  const profile=spectrumProfile((m.bands||[]).map(b=>({
+    key:b, nm:((m.band_info||{})[b]||{}).nm,
+    values:B.periods.map((p,i)=>B.band[b][i][c])})));
 
   // The decomposition the map layers summarise, drawn for this one cell.
   const decomp=decompositionChart(vals, B.periods, fit);
@@ -1230,7 +1307,7 @@ function renderInspector(id){
       ${stab.seen} observed composite${stab.seen>1?'s':''}; stability is scored but
       flagged thin, and the trend/season fit needs eight composites.</div>` : ''}
 
-    <div class="sect">indices through the record</div>
+    <div class="sect">spectra and indices through the record</div>
     ${heat}
     <div class="sub" style="margin:6px 0 0;font-size:10.5px">Colour is each
       series&rsquo; distance from its own record mean, in standard deviations:
@@ -1238,6 +1315,12 @@ function renderInspector(id){
       Every row has its own scale, so rows stay comparable without sharing an
       axis; near-black cells were never observed. A vertical run means one
       composite sat oddly across many series at once.</div>
+
+    <div class="sect">spectral profile &mdash; record mean, whisker is observed range</div>
+    ${profile}
+    <div class="sub" style="margin:5px 0 0;font-size:10.5px">Band-centre means; the
+      line only joins band centres, it is not a measured continuum. The axis starts
+      at zero so a dark cell cannot look bright.</div>
 
     <div class="sect">seasonal decomposition &mdash; ${idxLabel(idx)}</div>
     ${decomp}
@@ -1420,6 +1503,130 @@ function heatmapChart(groups){
   </div>`;
 
   return `<svg class="chart heat" viewBox="0 0 ${W} ${H}">${g}</svg>`+leg;
+}
+
+/* ---- spectrum profile -------------------------------------------------
+ * Mean reflectance per band against wavelength. This is the one view in the
+ * biography that shows the cell's spectral *shape*: the heatmap above shows
+ * each band through time, but never how the bands relate to each other.
+ *
+ * The x axis is logarithmic in wavelength. Blue, green and red sit inside
+ * 482-655 nm while the SWIR bands run to 2200; on a linear axis the three
+ * visible bands collapse into the first tenth of the plot.
+ *
+ * The connecting line is an interpolant between band centres, not a measured
+ * continuum -- Landsat samples six slices, it does not sweep a spectrometer.
+ * That is why the points are drawn heavier than the line, and why the line is
+ * the only thing here that is not a measurement.
+ *
+ * The y axis starts at zero and is not auto-fitted per cell. Fitting to the
+ * local range would make a dark-water cell look as bright as a vegetated one,
+ * which is exactly the comparison this plot exists to support.
+ */
+function niceCeil(v){
+  if(!(v>0)) return 1;
+  // Finer steps than the usual 1/2/5 ladder: a 0.32 maximum rounded to 0.5
+  // would waste a third of the plot and squash the range whiskers to nothing.
+  const e=Math.floor(Math.log10(v)), f=v/Math.pow(10,e);
+  const steps=[1,1.2,1.5,2,2.5,3,4,5,6,8,10];
+  const s=steps.find(x=>f<=x)||10;
+  return s*Math.pow(10,e);
+}
+
+function spectrumProfile(bands){
+  const W=400, PL=40, PR=13, PT=17, PB=34, H=138;
+  const rows=bands.map(b=>{
+    const vals=b.values.filter(v=>!isMissing(v)&&isFinite(v));
+    if(!vals.length) return null;
+    return {key:b.key, nm:b.nm,
+            mean:vals.reduce((a,x)=>a+x,0)/vals.length,
+            min:Math.min(...vals), max:Math.max(...vals), n:vals.length};
+  }).filter(Boolean);
+  if(rows.length<2)
+    return '<div class="sub" style="margin:6px 0 0">not enough observed bands to draw a profile</div>';
+
+  const useLog=rows.every(r=>r.nm>0);
+  const nms=rows.map(r=>r.nm);
+  const l0=Math.log(Math.min(...nms)), l1=Math.log(Math.max(...nms));
+  const X = useLog
+    ? nm=>PL+(W-PL-PR)*(Math.log(nm)-l0)/Math.max(l1-l0,1e-9)
+    : i=>PL+(W-PL-PR)*(rows.length<2?0.5:i/(rows.length-1));
+  const px=rows.map((r,i)=>useLog?X(r.nm):X(i));
+
+  const ymax=niceCeil(Math.max(...rows.map(r=>r.max))*1.08);
+  const Y=v=>PT+(H-PT-PB)*(1-v/ymax);
+  const ylab=v=>ymax<=0.05?v.toFixed(3):v.toFixed(2);
+
+  let g='';
+
+  // ---- y grid, from zero so two cells can be compared ----
+  [0,0.5,1].forEach(f=>{
+    const v=ymax*f, y=Y(v);
+    g+=`<line x1="${PL}" y1="${y.toFixed(1)}" x2="${W-PR}" y2="${y.toFixed(1)}"
+          stroke="#2c3242" ${f===0?'':'stroke-dasharray="2 4"'}/>`;
+    g+=`<text x="${PL-5}" y="${(y+3).toFixed(1)}" fill="#98a2b8" font-size="8.5"
+          text-anchor="end">${ylab(v)}</text>`;
+  });
+
+  // Gradient in wavelength order so the line itself carries the band hues --
+  // the same convention as the heatmap swatches, applied continuously.
+  const stops=rows.map((r,i)=>{
+    const t=((px[i]-PL)/(W-PL-PR))*100;
+    return `<stop offset="${clamp(t,0,100).toFixed(1)}%" stop-color="${bandColor(r.key)}"/>`;
+  }).join('');
+  g+=`<defs><linearGradient id="specgrad" x1="0" y1="0" x2="1" y2="0">${stops}</linearGradient></defs>`;
+
+  // ---- observed range, drawn first so the mean line stays unbroken ----
+  rows.forEach((r,i)=>{
+    const x=px[i], col=bandColor(r.key);
+    const yHi=Y(r.max), yLo=Y(r.min);   // yHi is numerically *smaller*: the
+    if(Math.abs(yHi-yLo)>1.2){          // axis is inverted, so compare the gap
+      g+=`<line x1="${x.toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yLo.toFixed(1)}"
+            stroke="${rgba(col,0.62)}" stroke-width="1.6"/>`;
+      g+=`<line x1="${(x-3.2).toFixed(1)}" y1="${yHi.toFixed(1)}" x2="${(x+3.2).toFixed(1)}" y2="${yHi.toFixed(1)}"
+            stroke="${rgba(col,0.62)}" stroke-width="1.6"/>`;
+      g+=`<line x1="${(x-3.2).toFixed(1)}" y1="${yLo.toFixed(1)}" x2="${(x+3.2).toFixed(1)}" y2="${yLo.toFixed(1)}"
+            stroke="${rgba(col,0.62)}" stroke-width="1.6"/>`;
+    }
+  });
+
+  const pts=rows.map((r,i)=>[px[i],Y(r.mean)]);
+  const line=pts.map((p,i)=>`${i?'L':'M'} ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+  const base=Y(0).toFixed(1);
+  const area=`M ${pts[0][0].toFixed(1)} ${base} L `+
+    pts.map(p=>`${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' L ')+
+    ` L ${pts[pts.length-1][0].toFixed(1)} ${base} Z`;
+  g+=`<path d="${area}" fill="url(#specgrad)" opacity="0.13"/>`;
+  g+=`<path d="${line}" fill="none" stroke="url(#specgrad)" stroke-width="1.6"
+        stroke-linejoin="round" opacity="0.9"/>`;
+
+  rows.forEach((r,i)=>{
+    g+=`<circle cx="${px[i].toFixed(1)}" cy="${Y(r.mean).toFixed(1)}" r="3.4"
+          fill="${bandColor(r.key)}" stroke="#151922" stroke-width="1.4">
+          <title>${bandLabel(r.key)} &middot; mean ${fmt(r.mean,4)} &middot;
+            observed ${fmt(r.min,4)}&ndash;${fmt(r.max,4)} over ${r.n} composites</title></circle>`;
+  });
+
+  // ---- wavelength ticks ----
+  rows.forEach((r,i)=>{
+    const x=px[i], anchor=i===0?'start':i===rows.length-1?'end':'middle';
+    g+=`<text x="${x.toFixed(1)}" y="${(H-PB+15).toFixed(1)}" fill="#98a2b8" font-size="8"
+          text-anchor="${anchor}">${r.nm||''}</text>`;
+  });
+  g+=`<text x="${W-PR}" y="${H-4}" fill="#6f7688" font-size="8"
+        text-anchor="end">nm</text>`;
+
+  // ---- mean values, kept because the heatmap above carries none ----
+  rows.forEach((r,i)=>{
+    const x=px[i], py=Y(r.mean);
+    const anchor=i===0?'start':i===rows.length-1?'end':'middle';
+    const above=py-9>PT+7;
+    g+=`<text x="${x.toFixed(1)}" y="${(py+(above?-8:15)).toFixed(1)}"
+          fill="${bandColor(r.key)}" font-size="8.5" font-weight="600"
+          text-anchor="${anchor}">${fmt(r.mean,3)}</text>`;
+  });
+
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}">${g}</svg>`;
 }
 
 /* ---- seasonal decomposition ------------------------------------------

@@ -482,7 +482,10 @@ covers **one year of the cache**, not the record. Two consequences:
 The mosaic is worth keeping for the years being worked on. It is not worth
 keeping for the whole record unless the machine has the disk.
 
-### 7.1a Publication: one repository per dataset
+### 7.1a Publication: one repository per dataset (deferred)
+
+> **Deferred (D-33).** This is the publication design, not current work. No
+> regional repositories are being created; the single-site pilot is the focus.
 
 The unit of publication is a **dataset**, not this repository (D-31). A build
 under `data/regional/` covers a whole AOI at once -- one res-7 overview, one
@@ -496,13 +499,13 @@ manifest, 72 res-8 region shards -- and that is the wrong thing to publish:
 * it couples unrelated rebuilds. Re-running one shard touches the repository
   that everyone clones.
 
-So `h3lab` publishes the Rookery Bay record and the viewer code, and the
-regional archive is split by `tools/publish_datasets.py` into one repository
-per dataset:
+So the design is for `h3lab` to publish the Rookery Bay record and the viewer
+code, and for `tools/publish_datasets.py` to split the regional archive into
+one repository per dataset:
 
 | what | repository | payload |
 |---|---|---|
-| Rookery Bay pilot, res 8/9/10 | this one, `7yl4r/h3lab` | 13.4 MiB |
+| Rookery Bay pilot, res 8/9/10 | this one, `7yl4r/h3lab` | 15.6 MB |
 | viewer code (pilot, dataset viewer, probe) | this one | 144 KiB |
 | res-7 overview **and the index manifest** | `h3-overview` | 7.8 MiB |
 | one res-8 region shard, x72 | `h3-region-<res4 parent>` | 15 KiB-1.3 MiB |
@@ -537,7 +540,7 @@ against 1 GB". Measured from the 2017 build (payload 64,544,937 B; overview
 
 | limit | applies to | measured headroom |
 |---|---|---|
-| 1 GB per published site | this repository's site, 13.5 MiB | 1.4 % used |
+| 1 GB per published site | this repository's site, 15.7 MB | 1.6 % used |
 | 100 MB per file | `overview_res7.bin.gz` | 257 more bins -- **11.3 years** |
 | 100 MB per file | largest region shard | 1,781 bins -- 78 years |
 | 1 GB per repository | largest dataset repository, 7.8 MiB | 2,779 bins -- 122 years |

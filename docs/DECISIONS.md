@@ -668,7 +668,12 @@ hand. Worth knowing for any other repository adopting this workflow.
 ---
 
 ## D-31 — One repository per dataset; h3lab is the Rookery Bay record
-*2026-10-22 · accepted · architecture*
+*2026-10-22 · deferred 2026-10-23 · architecture*
+
+> **Deferred by D-33.** The 73 regional dataset repositories are not being
+> created, and regional publication is not active work. The pilot remains the
+> focus. This entry is kept as the design record in case regional publication
+> resumes; nothing below is a near-term task.
 
 **Decision.** The unit of publication is the **dataset**, not the build and not
 the AOI. A regional build is split into:
@@ -758,10 +763,20 @@ single overview manifest — i.e. the URL-addressed model is proven end to end,
 leaving only repository creation and authentication. The overview-per-year
 split and the bucket both remain open, and both are now data-side changes.
 
+**Status.** Deferred by D-33 (2026-10-23). No repositories are being created
+and the regional build is not being published; the single-site pilot is the
+active work.
+
 ---
 
 ## D-32 — The pilot drops reflectance and ships per-cell assessment instead
-*2026-10-22 · accepted · pilot / product*
+*2026-10-22 · superseded in part by D-33 · pilot / product*
+
+> **Superseded in part by D-33 (2026-10-23).** The per-cell assessment and the
+> stability default stand. The removal of reflectance and the per-band layers
+> does not: both returned to the pilot bundle and viewer. The rationale below
+> for computing the assessment at export still applies; the payload and
+> "consequences" claims about bands are historical.
 
 **Decision.** The Rookery Bay pilot bundle no longer carries the six
 surface-reflectance series, and the viewer no longer offers per-band spectra
@@ -818,23 +833,76 @@ water near the denominator's zero.
 
 **Consequences.**
 
-- `meta.bands` and `meta.band_info` are gone; `meta.analysis` describes the
-  six metrics (key, label, rank direction, display span, palette) so the
-  viewer's controls are generated from the bundle rather than hard-coded.
+- `meta.bands` and `meta.band_info` were removed (restored by D-33);
+  `meta.analysis` describes the six metrics (key, label, rank direction,
+  display span, palette) so the viewer's controls are generated from the
+  bundle rather than hard-coded.
 - The binary writer treats the band group as optional. `build_block` still
   writes it when a block has one, so the regional archive
   (`export_region.py`, `viewer/regional.html`) is unchanged, bands and all.
 - The pilot could not be rebuilt from scenes here — there is no
   `data/cache/` — so `tools/reanalyze_pilot.py` recomputed the new fields from
   the *published* bundle using the same `h3lab.analysis` code as the exporter.
-  It is a one-shot migration: once the bands are dropped from a payload they
-  cannot be recovered, so a later change to the model needs a scene rebuild.
+  It is a one-shot migration. The pre-migration bundles survived in git, and
+  D-33 recovered them; a later change to the model still needs a scene
+  rebuild or another published copy to work from.
 - `tools/test_analysis.py` pins the properties the layers claim (slope,
   swing, phase, planted anomaly, gaps, thin records, scale-invariant angle),
   and the viewer's `fitCell` was checked against the Python fit to ~1e-15 on
   the same synthetic record. The biography re-fits one cell so its chart
   cannot disagree with the layer that selected it.
 - D-03's "six reflectance bands and six indices" remains true of the regional
-  **archive**; it is no longer the inventory of the pilot **bundle**. D-31 is
-  unaffected: this changes what a pilot payload contains, not where payloads
-  are published.
+  **archive** and, after D-33, of the pilot **bundle** again. D-31 was the
+  publishing plan at the time; it is now deferred by D-33.
+
+---
+
+## D-33 — Spectra return to the pilot; regional publication is deferred
+*2026-10-23 · accepted · pilot / scope*
+
+**Decision.** Two changes:
+
+1. The pilot bundle and viewer carry surface reflectance again. The bundle
+   writes `band.<name>` fields and restores `meta.bands` / `meta.band_info`;
+   the viewer offers one reflectance layer per band, includes the six
+   reflectance rows in the biography heatmap, and draws the spectral profile.
+   The per-cell assessment and the spectral-stability default from D-32 stay.
+2. The 73-repository regional deployment in D-31 is deferred. This repository
+   publishes the Rookery Bay pilot and the viewer code only. `tools/` keeps the
+   regional publisher as a design record, but no repositories are being created
+   and no regional build is being split or pushed. The single-site prototype is
+   the work.
+
+**Why.** The assessment is a summary of the spectra, not a substitute for
+them. Without reflectance in the payload the biography could rank cells by
+stability and trend but could not show the reflections those numbers were
+computed from; the reader had to trust the summary. The band layers and the
+profile make the summary checkable. Separately, the regional deployment is an
+administrative and operational commitment (73 repositories, tokens, per-repo
+addresses) far ahead of the evidence; the pilot still needs iteration, and
+each iteration is cheaper on one site.
+
+The cost is bounded: res 8/9/10 are 0.31 / 2.05 / 13.24 MB served, 15.6 MB in
+total, against 9.3 MB without bands. The largest file is 13.24 MB, 13% of the
+100 MB per-file ceiling. That is acceptable for the pilot; a future
+assessment-only export can drop the group again.
+
+**Recovery.** The pre-migration bundles were still in git at `faf3bc7`. The
+source rasters are not in this checkout, so `tools/restore_spectra.py` reads
+those bundles, dequantises bands and indices, recomputes the assessment with
+`h3lab.analysis.analyse`, and writes bands, indices and assessment together.
+The recomputed cell fields match the assessment-only bundle within one
+quantisation step (max |diff| 3.6e-4 on `stab.angle`), so this is a recovery,
+not a model change. `tools/reanalyze_pilot.py` remains the record of the
+original migration.
+
+**Consequences.**
+
+- `viewer/pilot.html` decodes `desc.bands`, restores the band colour modes,
+  the heatmap's reflectance group and the spectral profile, and keeps the
+  assessment layers and the stability default.
+- The pilot bundle is larger; README sizes, load notes and the tracked-file
+  inventory are updated.
+- D-31 is deferred, not deleted: the regional archive and publisher still
+  exist, and the design is available if regional publication is picked up
+  later.

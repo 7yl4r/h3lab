@@ -1,5 +1,9 @@
 """Rebuild the published pilot bundle in the assessment format (D-32).
 
+**Superseded in part by D-33.** The pilot now carries reflectance again; this
+file is kept as the record of the original assessment migration. To reverse
+the band drop from a pre-migration bundle, use ``restore_spectra.py``.
+
 The pilot bundle predates the assessment export: it carries six reflectance
 bands per composite and no per-cell fit. Rebuilding it from scenes needs the
 raster cache and a long Planetary Computer run, so this tool recomputes the

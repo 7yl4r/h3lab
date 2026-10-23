@@ -1,11 +1,11 @@
 """Per-cell assessment of the whole record.
 
-The viewer used to derive its change layers from the per-band reflectance it
-carried. Reflectance is expensive to ship (six bands x 26 composites x every
-cell) and the number of bands only grows with each new sensor, while most of
-what the map is asked -- *is this cell settling or moving?* -- is a property
-of the record, not of any one composite. So the assessment is computed once,
-here, and exported as a handful of scalars per cell.
+Most of what the map is asked -- *is this cell settling or moving?* -- is a
+property of the record, not of any one composite. The assessment is therefore
+computed once, here, and exported as a handful of scalars per cell, so the
+browser does not have to refit the record for every cell on every load. The
+reflectance bands still ship alongside it: the biography's spectral heatmap
+and profile need them, and so do the reflectance map layers.
 
 seasonal decomposition
     For each index the model is
@@ -32,7 +32,7 @@ seasonal decomposition
 
 stability
     ``angle`` and ``churn`` are the two metrics the viewer already exposed,
-    moved to export time so the 6-band vectors no longer have to ship. Their
+    computed here so they do not have to be re-derived per load. Their
     definitions are unchanged -- see :func:`stability_fields`.
 
 Cells with fewer than ``MIN_FIT_OBS`` usable composites are left missing

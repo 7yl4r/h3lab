@@ -42,8 +42,8 @@ The pieces that are new, and why they exist:
 - **A region-sharded archive** (`shard.py`, `export_region.py`). Shards are
   keyed by the cell's H3 **res-4 parent** — 72 of them, covering 100 % of the
   res-8 grid — with the res-7 overview as a single unsharded file (D-21).
-  Each shard is published as **its own repository**, and the overview
-  repository carries the manifest that addresses them by URL (D-31).
+  The publisher can split each shard into its own repository (D-31), but that
+  deployment is deferred (D-33); the build currently stays local.
 - **A change layer** (`change.py`) carrying, per cell, the bin, date,
   magnitude, score and method of the largest break found by a step-regressor
   partial-F scan (D-14, D-27).
@@ -72,32 +72,20 @@ arithmetic over files on disk, so a code change costs minutes to re-run
 rather than hours (D-26). The per-stage caches live under `data/` and are
 **not** tracked — they are build accelerators, not products.
 
-The build writes one directory, `data/regional/`, which is also not tracked:
-it is the *input* to publication, not the published thing. Splitting it into
-one repository per dataset is a separate, explicit step:
-
-```bash
-# show the plan: 73 repositories, one overview + 72 regions
-python tools/publish_datasets.py
-
-# write dist/h3-overview/ and dist/h3-region-<parent>/ x 72
-python tools/publish_datasets.py --dist dist
-
-# create the GitHub repositories (needs gh, authenticated), then push
-python tools/publish_datasets.py --emit-create dist/create-repos.sh
-python tools/publish_datasets.py --dist dist --push
-```
-
-The split copies payloads unchanged and stamps each manifest entry with the
-absolute URL of its payload, so the build stays byte-identical and the viewer
-needs no knowledge of where the data lives.
+The build writes one directory, `data/regional/`, which is not tracked. It is a
+local artefact for now: the publisher can split it into one repository per
+dataset (`tools/publish_datasets.py`, D-31), but that deployment is deferred
+(D-33), so nothing is staged or pushed as part of current work. The split
+copies payloads unchanged and stamps each manifest entry with the absolute URL
+of its payload, so the build would stay byte-identical if publication resumes.
 
 ### What it produces, measured
 
 For 2017 (23 bins): 383 scenes read, 23 mosaics, 128,236 res-8 cells in 72
-shards plus an 18,115-cell res-7 overview, **64.5 MB published across 73
-repositories** (61.6 MiB of payload), **under a second** cold load against a
-3 s budget, and 5,760 cells (4.5 %) carrying a change break.
+shards plus an 18,115-cell res-7 overview, **64.5 MB in the local build**
+(61.6 MiB of payload), **under a second** cold load against a 3 s budget, and
+5,760 cells (4.5 %) carrying a change break. The split into 73 repositories is
+not deployed (D-33).
 
 Check a build against the five exit criteria with:
 
@@ -115,16 +103,19 @@ The *measured* numbers in `docs/DESIGN.md` and `docs/DECISIONS.md` come from
 scripts rather than prose so the claims can be re-checked against a build
 instead of taken on trust.
 
-### Publishing it: one repository per dataset
+### Publishing (deferred): one repository per dataset
 
-The unit of publication is a **dataset**, not this repository (D-31). This
-repository publishes the Rookery Bay record and the viewer code; the regional
-archive is split so that the overview and each of the 72 region shards are
-their own repository.
+> **Not active work (D-33).** This section records the design, not a current
+> deployment. The repository publishes the Rookery Bay pilot and the viewer
+> code; no regional repositories are being created or pushed.
+
+The unit of publication is a **dataset**, not this repository (D-31). If the
+regional archive is published later, it is split so that the overview and each
+of the 72 region shards are their own repository.
 
 | what | where it is published | size |
 |---|---|---|
-| Rookery Bay bundles res 8/9/10 | this repository's Pages site | 9.3 MB |
+| Rookery Bay bundles res 8/9/10 | this repository's Pages site | 15.6 MB |
 | the viewer code (pilot, dataset viewer, probe) | this repository's Pages site | 144 KiB |
 | res-7 overview + the index manifest | `h3-overview` | 7.8 MiB |
 | one res-8 region shard, ×72 | `h3-region-<res4 parent>`, one each | 15 KiB–1.3 MiB |
@@ -137,7 +128,7 @@ The split is not cosmetic. It changes which limit binds:
 | 1 GB *per repository* | each dataset repository | 2,779 bins ≈ 122 yr |
 | 100 MB per file | the overview repository's payload | 257 more bins = **11.3 yr** |
 | 100 MB per file | the largest region repository's payload | 1,781 bins = 78 yr |
-| 1 GB per Pages site | this repository's site (13.5 MiB) | 1.4 % used |
+| 1 GB per Pages site | this repository's site (15.7 MB) | 1.6 % used |
 
 The overview is still the file that breaks first, and still for the same
 structural reason: D-21 made it one unsharded bundle, so it carries every cell
@@ -175,10 +166,10 @@ later pushes to `main` deploy without further setup. The site is the pilot and
 opens directly into it: `/h3lab/` and `/h3lab/viewer/` both redirect to
 `/h3lab/viewer/pilot.html`. There is no landing page.
 
-The regional datasets are not published yet, and this site does not pretend
+The regional datasets are not published, and this site does not pretend
 otherwise: `viewer/regional.html` is a dataset viewer that needs an overview
 manifest, and without `?manifest=` it reports that `data/regional/manifest.json`
-is missing. Once the overview repository exists, open it as
+is missing. If an overview repository is created later, open it as
 `https://tylar.info/h3lab/viewer/regional.html?manifest=https://raw.githubusercontent.com/7yl4r/h3-overview/main/manifest.json`.
 
 To publish, once, for any *new* repository that needs Pages rather than raw
@@ -277,10 +268,10 @@ of how each ratio moved through the record. Nothing is derived from a model
 except that assessment, which is a regression that can be checked against the
 series it came from.
 
-The regional archive still carries the six surface-reflectance bands, because
-it is an archive. The pilot does not: six bands per composite cost six times
-the bytes, and the only layer that needed them — spectral stability — is now
-computed at export time.
+The pilot carries the six surface-reflectance bands alongside the indices. They
+power the per-band map layers and the biography's spectral heatmap and
+profile; the per-cell assessment is an additional summary of those spectra,
+not a replacement for them. The regional archive carries the same bands.
 
 That is a deliberate line. A categorical label has to be justified against
 ground truth, and none is wired in here; an uncalibrated endmember library
@@ -395,20 +386,21 @@ the browser with `DecompressionStream`, which sidesteps the fact that a plain
 static server will not compress anything. Use `--no-gzip` to write plain
 `.bin` if you need to support a browser without `DecompressionStream`.
 
-| resolution | before (JSON) | after | served | cold load |
-|---|---|---|---|---|
-| res 8 | 1.3 MB | 0.26 MB | 0.19 MB | — |
-| res 9 | 9.0 MB | 1.78 MB | 1.23 MB | **0.63 s** |
-| res 10 | 62.5 MB | 12.45 MB | 7.91 MB | ~0.2 s (warm) |
+| resolution | before (JSON) | after | served |
+|---|---|---|---|
+| res 8 | 1.3 MB | 0.39 MB | 0.31 MB |
+| res 9 | 9.0 MB | 2.70 MB | 2.05 MB |
+| res 10 | 62.5 MB | 18.88 MB | 13.24 MB |
 
-Measured stage times on the default view: `fetch 165ms · inflate 93ms ·
-decode 16ms · geometry 3ms · colour 3ms` — about **0.3 s** for res 9, and
-0.9 s from a cold page load. Those timings were taken before the reflectance
-series were dropped, so they are upper bounds now; the payload is a third
-smaller and the local decode alone is ~11 ms. Hexagon outlines are baked into
-the bundle rather than recomputed with the H3 library on every load.
+Measured stage times on the default view before the assessment fields were
+added: `fetch 165ms · inflate 93ms · decode 16ms · geometry 3ms · colour 3ms`.
+The bundle has grown since — res 9 is 2.05 MB served and res 10 is 13.24 MB —
+so run `viewer/probe.html` to time the shipped blocks rather than reading those
+numbers as current. Local decode remains fast (~11 ms at res 8). Hexagon
+outlines are baked into the bundle rather than recomputed with the H3 library
+on every load.
 
-Everything shrank from 72.7 MB to 9.3 MB served, a 7.8x reduction.
+Everything shrank from 72.7 MB of JSON to 15.6 MB served, a 4.7x reduction.
 
 ### Diagnosing a slow load
 
@@ -445,23 +437,23 @@ showing `fetch · inflate · decode · geometry · colour` in milliseconds.
 
 ### The biography heatmap
 
-The biography needs six indices across 26 composites in a panel about 430 px
-wide. Overlaid line charts cannot do this: none of the series agree on a
-y-scale, so whatever axis you pick hides the others, and the later series sit
-on top of the earlier ones. Every alternative that fits the space trades
-something away, but they do not trade the same things:
+The biography needs six reflectance bands and six indices across 26 composites
+in a panel about 430 px wide. Overlaid line charts cannot do this: none of the
+series agree on a y-scale, so whatever axis you pick hides the others, and the
+later series sit on top of the earlier ones. Every alternative that fits the
+space trades something away, but they do not trade the same things:
 
 | form | keeps | costs |
 |---|---|---|
 | overlaid lines | path between composites | occlusion, one shared y-scale |
-| small multiples | path and per-series scale | six axes, more height |
+| small multiples | path and per-series scale | twelve axes, more height |
 | horizon plot | per-series scale in 28 px | folded magnitude has to be decoded |
 | **heatmap** | per-series scale, no occlusion | continuity between composites |
 
 The heatmap wins on breadth. Matrix position carries the series and the time,
 so nothing is ever hidden behind anything else, and each row is normalised
 against **its own** record mean and standard deviation. That is what makes
-six series with ranges from 0.02 to 0.9 comparable without a shared axis.
+twelve series with ranges from 0.02 to 0.9 comparable without a shared axis.
 
 Normalising by standard deviation rather than per-row min–max is deliberate. A
 min–max scale would give a nearly flat series — SAVI moves about 0.02 across
@@ -498,6 +490,12 @@ Continuity is the thing given up. A heatmap says *when* a composite was
 anomalous, not what happened between composites, which is why the current
 composite is still printed as exact numbers above it and every cell carries a
 tooltip with its value and deviation.
+
+The heatmap shows each band through time but never how the bands relate to
+each other. That is the **spectral profile** below it: mean reflectance per
+band against wavelength, on a log x-axis so the three visible bands do not
+collapse into the first tenth of the plot, with the observed range as a
+whisker. The line only joins band centres; it is not a measured continuum.
 
 ### The seasonal decomposition
 
@@ -546,9 +544,12 @@ event. Gaps are left as gaps.
 Index identity uses a **fixed** palette instead of the map ramps, because the
 ramps cannot separate the indices -- NDWI and MNDWI are both blues, and SAVI
 sits close to NDVI in hue. NDVI is green, NDWI blue, MNDWI violet, NDMI teal,
-NBR red and SAVI yellow. In the heatmap these hues appear only as the small
-swatch beside each row: the cell colour is reserved for the anomaly, which is
-the channel that has to stay legible.
+NBR red and SAVI yellow. The six bands use a wavelength palette -- blue, green
+and red take their own colours, NIR continues past red, and the SWIR bands run
+through violet to indigo -- so the spectral profile reads in wavelength order.
+In the heatmap these hues appear only as the small swatch beside each row: the
+cell colour is reserved for the anomaly, which is the channel that has to stay
+legible.
 
 The assessment layers use their own ramps: a diverging brown-to-teal for trend
 and significance (decline vs increase), a sequential ramp for amplitude,
@@ -608,14 +609,15 @@ The viewer has:
 - **year/season scrubber** with a play button and Hurricane Irma / Ian markers
 - **resolution switcher** — geometry is rebuilt and re-fitted per resolution
 - **colour modes** — spectral stability (the default), six whole-record
-  assessment layers, any index, or change-versus-baseline
+  assessment layers, any index, any reflectance band, or
+  change-versus-baseline
 - **spectral stability** layer, with two metrics (below)
 - **rank cells by** panel — the current layer, the most churning greenness,
   or the most settled spectra. Every entry is clickable.
 - **the biography panel** — an NDVI ribbon across the whole record, a heatmap
-  of every index through time (below), the cell's own trend-and-season
-  decomposition (below), observation counts, and a written summary of what
-  happened to that cell and when
+  of every band and index through time (below), the spectral profile (below),
+  the cell's own trend-and-season decomposition (below), observation counts,
+  and a written summary of what happened to that cell and when
 
 Click a hexagon on the map, or click any entry in the swings panel.
 
@@ -656,9 +658,9 @@ They answer different questions. A cell can double in reflectance without its
 spectrum rotating: churn notices, angle does not. Conversely a small
 reallocation between green and NIR leaves overall brightness almost unchanged
 while the spectral shape moves. Both are computed once at export
-(`h3lab.analysis`) and shipped as two per-cell fields. They used to be derived
-in the browser from the band vectors, which was the only reason the pilot had
-to ship six reflectance bands at all.
+(`h3lab.analysis`) and shipped as two per-cell fields, so the map does not
+refit every cell on every load. The bands still ship for the biography and the
+reflectance layers; the assessment is a summary, not a replacement.
 
 Two guards, because both would otherwise mislead:
 
@@ -692,13 +694,13 @@ pill under the toolbar.
 
 ## Repository layout and what is tracked
 
-Tracked, 10 MB total:
+Tracked, 15.7 MB total:
 
 ```
 src/h3lab/*.py        the pipeline
 viewer/*.html         pilot, dataset viewer, redirect, load probe; no build step
-data/*.bin.gz         the Rookery Bay pilot bundle, 9.3 MB
-data/*_meta.json      its index, 1.5 kB
+data/*.bin.gz         the Rookery Bay pilot bundle, 15.6 MB
+data/*_meta.json      its index, 4.2 kB
 tools/                verification, publication and measurement scripts
 requirements.txt      pinned direct dependencies
 ```
@@ -707,25 +709,25 @@ Ignored, because it is build output rather than product:
 
 ```
 data/regional/   the South Florida build: overview + 72 shards + manifest;
-                 split into one repository per dataset by
-                 tools/publish_datasets.py (D-31)
+                 the publisher can split it into datasets (D-31), but that
+                 deployment is deferred (D-33)
 data/mosaic_cache/  15.3 GB of 30 m mosaics for 2017
 data/cache_regional/ per-cell composite and change caches
-dist/            staged dataset repositories awaiting a push
+dist/            staged dataset repositories, if publication resumes
 ```
 
-The pilot bundle is derived, but tracking it is deliberate: at 9.3 MB (7.9 MB
-in its largest file) it uses 8% of GitHub's 100 MB per-file ceiling, and it
+The pilot bundle is derived, but tracking it is deliberate: at 15.6 MB (13.2 MB
+in its largest file) it uses 13% of GitHub's 100 MB per-file ceiling, and it
 means a fresh clone opens the Rookery Bay viewer immediately instead of
 running a one-hour network-dependent pipeline first. The *regional* archive is
-not tracked for the opposite reason: it is 73 datasets, and 73 datasets are 73
-repositories (D-31).
+not tracked because it is build output; publishing it as 73 repositories is
+deferred (D-33).
 
 ### Why the bundle is safe to commit
 
 `gzip.compress` writes the current time into the gzip header by default, so two
 runs over identical data produced **byte-different files**. Tracked, that turns
-every re-export into a 14 MB phantom diff, and once committed each one is
+every re-export into a 15.6 MB phantom diff, and once committed each one is
 permanent history growth.
 
 The exporter now passes `mtime=0`, which makes the output a pure function of the
@@ -761,10 +763,10 @@ serve.sh         serve over HTTP (fetch() is blocked on file://)
 tools/publish_datasets.py   split a build into one repository per dataset
 data/cache/     78 per-composite .npz files (gitignored)
 data/rookery_bay_h3_meta.json    index: bbox, palette, events, block filenames
-data/rookery_bay_h3_res8.bin.gz  421 cells x 26 periods,  0.19 MB served
-data/rookery_bay_h3_res9.bin.gz  2,944 cells x 26 periods,  1.23 MB served
-data/rookery_bay_h3_res10.bin.gz 20,607 cells x 26 periods, 7.91 MB served
-data/regional/     the South Florida build (gitignored, split into repos)
+data/rookery_bay_h3_res8.bin.gz  421 cells x 26 periods,  0.31 MB served
+data/rookery_bay_h3_res9.bin.gz  2,944 cells x 26 periods,  2.05 MB served
+data/rookery_bay_h3_res10.bin.gz 20,607 cells x 26 periods, 13.24 MB served
+data/regional/     the South Florida build (gitignored; publication deferred)
 data/mosaic_cache/ the 30 m mosaic cache, 15.3 GB for 2017 (gitignored)
 dist/              staged dataset repositories (gitignored)
 ```

@@ -13,8 +13,9 @@ name: pages
 #
 # What does not, and must not:
 #
-#   data/regional/           the regional build output -- split into one repo
-#                            per dataset by tools/publish_datasets.py (D-31)
+#   data/regional/           the regional build output -- the publisher can
+#                            split it into datasets (D-31), but that
+#                            deployment is deferred (D-33)
 #   data/mosaic_cache/       15.3 GB for 2017 alone (D-29)
 #   data/cache_regional/     70 MB of npz
 #
